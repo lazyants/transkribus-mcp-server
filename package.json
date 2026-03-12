@@ -1,5 +1,5 @@
 {
-  "name": "transkribus-mcp-server",
+  "name": "@lazyants/transkribus-mcp-server",
   "version": "1.0.0",
   "description": "MCP server for the Transkribus REST API — manage collections, documents, recognition, models, and more. 290 tools across 22 resource domains.",
   "type": "module",
@@ -23,7 +23,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "keywords": [
     "mcp",
@@ -36,9 +37,9 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/lazy-ants/transkribus-mcp-server.git"
+    "url": "git+https://github.com/lazyants/transkribus-mcp-server.git"
   },
-  "mcpName": "io.github.lazy-ants/transkribus",
+  "mcpName": "io.github.lazyants/transkribus",
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.0",

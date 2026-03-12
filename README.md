@@ -1,6 +1,6 @@
 # transkribus-mcp-server
 
-[![Tests](https://github.com/lazy-ants/transkribus-mcp-server/actions/workflows/test.yml/badge.svg)](https://github.com/lazy-ants/transkribus-mcp-server/actions/workflows/test.yml)
+[![Tests](https://github.com/lazyants/transkribus-mcp-server/actions/workflows/test.yml/badge.svg)](https://github.com/lazyants/transkribus-mcp-server/actions/workflows/test.yml)
 
 MCP server for the [Transkribus REST API](https://transkribus.eu/). Manage collections, documents, HTR/OCR recognition, models, and more through the Model Context Protocol.
 
@@ -9,13 +9,13 @@ MCP server for the [Transkribus REST API](https://transkribus.eu/). Manage colle
 ## Installation
 
 ```bash
-npm install -g transkribus-mcp-server
+npm install -g @lazyants/transkribus-mcp-server
 ```
 
 Or run directly:
 
 ```bash
-npx transkribus-mcp-server
+npx @lazyants/transkribus-mcp-server
 ```
 
 ## Configuration
@@ -63,7 +63,7 @@ Add to `~/.claude/settings.json`:
   "mcpServers": {
     "transkribus": {
       "command": "npx",
-      "args": ["-y", "transkribus-mcp-server"],
+      "args": ["-y", "@lazyants/transkribus-mcp-server"],
       "env": {
         "TRANSKRIBUS_USER": "your-email@example.com",
         "TRANSKRIBUS_PASSWORD": "your-password"
@@ -80,7 +80,7 @@ Or use split servers (pick the splits you need):
   "mcpServers": {
     "transkribus-collections": {
       "command": "npx",
-      "args": ["-y", "-p", "transkribus-mcp-server", "transkribus-mcp-collections"],
+      "args": ["-y", "-p", "@lazyants/transkribus-mcp-server", "transkribus-mcp-collections"],
       "env": {
         "TRANSKRIBUS_USER": "your-email@example.com",
         "TRANSKRIBUS_PASSWORD": "your-password"
@@ -88,7 +88,7 @@ Or use split servers (pick the splits you need):
     },
     "transkribus-transcription": {
       "command": "npx",
-      "args": ["-y", "-p", "transkribus-mcp-server", "transkribus-mcp-transcription"],
+      "args": ["-y", "-p", "@lazyants/transkribus-mcp-server", "transkribus-mcp-transcription"],
       "env": {
         "TRANSKRIBUS_USER": "your-email@example.com",
         "TRANSKRIBUS_PASSWORD": "your-password"
@@ -107,7 +107,7 @@ Add to `claude_desktop_config.json`:
   "mcpServers": {
     "transkribus": {
       "command": "npx",
-      "args": ["-y", "transkribus-mcp-server"],
+      "args": ["-y", "@lazyants/transkribus-mcp-server"],
       "env": {
         "TRANSKRIBUS_USER": "your-email@example.com",
         "TRANSKRIBUS_PASSWORD": "your-password"
