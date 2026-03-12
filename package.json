@@ -24,7 +24,8 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "logo.png"
   ],
   "keywords": [
     "mcp",
