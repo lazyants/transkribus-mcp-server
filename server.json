@@ -1,0 +1,17 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.lazy-ants/transkribus",
+  "description": "MCP server for the Transkribus REST API — manage collections, documents, HTR/OCR recognition, models, and more. 290 tools across 22 resource domains with 8 entry points.",
+  "repository": {
+    "url": "https://github.com/lazy-ants/transkribus-mcp-server",
+    "source": "github"
+  },
+  "version": "1.0.0",
+  "packages": [
+    {
+      "registry_name": "npm",
+      "name": "transkribus-mcp-server",
+      "version": "1.0.0"
+    }
+  ]
+}

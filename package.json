@@ -1,0 +1,53 @@
+{
+  "name": "transkribus-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for the Transkribus REST API — manage collections, documents, recognition, models, and more. 290 tools across 22 resource domains.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "transkribus-mcp-server": "dist/index.js",
+    "transkribus-mcp-collections": "dist/entry-collections.js",
+    "transkribus-mcp-transcription": "dist/entry-transcription.js",
+    "transkribus-mcp-models": "dist/entry-models.js",
+    "transkribus-mcp-search": "dist/entry-search.js",
+    "transkribus-mcp-jobs": "dist/entry-jobs.js",
+    "transkribus-mcp-users": "dist/entry-users.js",
+    "transkribus-mcp-admin": "dist/entry-admin.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "mcp",
+    "transkribus",
+    "htr",
+    "ocr",
+    "handwritten-text-recognition",
+    "api",
+    "model-context-protocol"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lazy-ants/transkribus-mcp-server.git"
+  },
+  "mcpName": "io.github.lazy-ants/transkribus",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.0",
+    "axios": "^1.7.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "@types/node": "^20.0.0",
+    "vitest": "^3.0.0"
+  }
+}
