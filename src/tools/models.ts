@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { transkribusRequest } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
-import { CollIdSchema, ModelIdSchema, IdSchema, PaginationParams } from '../schemas/common.js';
+import { CollIdSchema, ModelIdSchema, IdSchema, PaginationParams, intCoerce } from '../schemas/common.js';
 
 export function registerModelTools(server: McpServer): void {
   // 1. POST /models/
@@ -290,8 +290,8 @@ export function registerModelTools(server: McpServer): void {
       inputSchema: z.object({
         type: z.string().describe('Model type (e.g. htr, la, ocr)'),
         id: IdSchema,
-        index: z.number().int().optional().describe('Start index (0-based)'),
-        nValues: z.number().int().optional().describe('Number of values to return'),
+        index: intCoerce(z.number().int()).optional().describe('Start index (0-based)'),
+        nValues: intCoerce(z.number().int()).optional().describe('Number of values to return'),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -310,8 +310,8 @@ export function registerModelTools(server: McpServer): void {
       inputSchema: z.object({
         type: z.string().describe('Model type (e.g. htr, la, ocr)'),
         id: IdSchema,
-        index: z.number().int().optional().default(0).describe('Start index'),
-        nValues: z.number().int().optional().default(-1).describe('Number of values'),
+        index: intCoerce(z.number().int()).optional().default(0).describe('Start index'),
+        nValues: intCoerce(z.number().int()).optional().default(-1).describe('Number of values'),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -348,8 +348,8 @@ export function registerModelTools(server: McpServer): void {
       inputSchema: z.object({
         type: z.string().describe('Model type (e.g. htr, la, ocr)'),
         id: IdSchema,
-        index: z.number().int().optional().default(0).describe('Start index'),
-        nValues: z.number().int().optional().default(-1).describe('Number of values'),
+        index: intCoerce(z.number().int()).optional().default(0).describe('Start index'),
+        nValues: intCoerce(z.number().int()).optional().default(-1).describe('Number of values'),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -368,8 +368,8 @@ export function registerModelTools(server: McpServer): void {
       inputSchema: z.object({
         type: z.string().describe('Model type (e.g. htr, la, ocr)'),
         id: IdSchema,
-        index: z.number().int().optional().default(0).describe('Start index'),
-        nValues: z.number().int().optional().default(-1).describe('Number of values'),
+        index: intCoerce(z.number().int()).optional().default(0).describe('Start index'),
+        nValues: intCoerce(z.number().int()).optional().default(-1).describe('Number of values'),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },

@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { transkribusRequest } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
-import { CollIdSchema, DocIdSchema, PageNrSchema } from '../schemas/common.js';
+import { CollIdSchema, DocIdSchema, PageNrSchema, TranscriptIdSchema, intCoerce } from '../schemas/common.js';
 
 export function registerCollectionPageTools(server: McpServer): void {
   // 1. DELETE /collections/{collId}/{id}/{page}
@@ -195,8 +195,8 @@ export function registerCollectionPageTools(server: McpServer): void {
         collId: CollIdSchema,
         id: DocIdSchema,
         page: PageNrSchema,
-        index: z.number().int().optional().default(0).describe('Start index'),
-        nValues: z.number().int().optional().default(-1).describe('Number of values'),
+        index: intCoerce(z.number().int()).optional().default(0).describe('Start index'),
+        nValues: intCoerce(z.number().int()).optional().default(-1).describe('Number of values'),
         sortColumn: z.string().optional().describe('Column to sort by'),
         sortDirection: z.string().optional().describe('Sort direction (asc/desc)'),
       }),
@@ -365,7 +365,7 @@ export function registerCollectionPageTools(server: McpServer): void {
         collId: CollIdSchema,
         id: DocIdSchema,
         page: PageNrSchema,
-        transcriptId: z.number().int().positive().describe('Transcript ID'),
+        transcriptId: TranscriptIdSchema,
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -385,7 +385,7 @@ export function registerCollectionPageTools(server: McpServer): void {
         collId: CollIdSchema,
         id: DocIdSchema,
         page: PageNrSchema,
-        transcriptId: z.number().int().positive().describe('Transcript ID'),
+        transcriptId: TranscriptIdSchema,
         status: z.string().describe('New transcript status'),
         note: z.string().optional().describe('Status note'),
         nrIsPageId: z.boolean().optional().default(false).describe('Treat page nr as page ID'),
@@ -427,7 +427,7 @@ export function registerCollectionPageTools(server: McpServer): void {
         collId: CollIdSchema,
         id: DocIdSchema,
         page: PageNrSchema,
-        transcriptId: z.number().int().positive().describe('Transcript ID'),
+        transcriptId: TranscriptIdSchema,
         body: z.record(z.unknown()).optional().describe('Status update data'),
         status: z.string().optional().describe('New status'),
         note: z.string().optional().describe('Status note'),
