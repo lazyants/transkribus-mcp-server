@@ -14,3 +14,8 @@ export async function startServer(server: McpServer): Promise<void> {
   await server.connect(transport);
   console.error(`MCP server running on stdio (v${pkg.version})`);
 }
+
+export function logFatalAndExit(err: unknown): never {
+  console.error('Fatal:', err instanceof Error ? err.message : err);
+  process.exit(1);
+}
