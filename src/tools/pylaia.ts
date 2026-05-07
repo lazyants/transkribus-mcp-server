@@ -17,19 +17,134 @@ function groupPagesByDoc(
   return Array.from(grouped, ([docId, pageList]) => ({ docId, pageList: { pages: pageList } }));
 }
 
+/**
+ * Default textFeatsCfg matching Transkribus UI defaults (TextFeats preprocessing).
+ * Without this, the server falls back to trpPreprocPars (128px, no deslope/deslant)
+ * which produces significantly worse models.
+ */
+const DEFAULT_TEXT_FEATS_CFG = {
+  verbose: false,
+  deslope: true,
+  deslant: true,
+  type: 'raw',
+  format: 'img',
+  stretch: true,
+  enh: true,
+  enh_win: 30,
+  enh_prm: 0.1,
+  normheight: 64,
+  normxheight: 0,
+  momentnorm: true,
+  fpgram: true,
+  fcontour: true,
+  fcontour_dilate: 0,
+  padding: 10,
+  maxwidth: 6000,
+};
+
+/**
+ * Default createModelPars matching Transkribus UI defaults.
+ * Critical: use_masked_conv=True (server default is False, which degrades CER).
+ */
+const DEFAULT_CREATE_MODEL_PARS: Record<string, string> = {
+  '--print_args': 'True',
+  '--train_path': './model',
+  '--model_filename': 'model',
+  '--logging_level': 'info',
+  '--cnn_kernel_size': '3 3 3 3',
+  '--cnn_dilation': '1 1 1 1',
+  '--cnn_num_features': '12 24 48 48',
+  '--cnn_batchnorm': 'True True True True',
+  '--cnn_activations': 'LeakyReLU LeakyReLU LeakyReLU LeakyReLU',
+  '--cnn_poolsize': '2 2 0 2',
+  '--use_masked_conv': 'True',
+  '--rnn_type': 'LSTM',
+  '--rnn_layers': '3',
+  '--rnn_units': '256',
+  '--rnn_dropout': '0.5',
+  '--lin_dropout': '0.5',
+  '--logging_also_to_stderr': 'info',
+  '--logging_file': 'train-crnn.log',
+  '--logging_overwrite': 'False',
+};
+
+/**
+ * Default trainCtcPars matching Transkribus UI defaults.
+ * Key differences from server defaults: max_epochs=100 (not 250),
+ * use_distortions=True, use_baidu_ctc=True.
+ */
+const DEFAULT_TRAIN_CTC_PARS: Record<string, string> = {
+  '--max_nondecreasing_epochs': '20',
+  '--max_epochs': '100',
+  '--batch_size': '24',
+  '--learning_rate': '3.0E-4',
+  '--delimiters': '<space>',
+  '--use_baidu_ctc': 'True',
+  '--add_logsoftmax_to_loss': 'False',
+  '--train_path': './model',
+  '--logging_level': 'info',
+  '--logging_also_to_stderr': 'info',
+  '--logging_file': 'train-crnn.log',
+  '--show_progress_bar': 'False',
+  '--use_distortions': 'True',
+  '--save_checkpoint_interval': '1',
+  '--print_args': 'True',
+  '--logging_overwrite': 'False',
+};
+
+/**
+ * Convert a flat key-value map to the JAXB ParameterMap format for the Transkribus API.
+ * GOTCHA: JAXB's AJaxbMap uses @XmlElement(name="entry") on getMap() — Jackson JSON
+ * serializes this as {"entry": [...]} without any outer wrapper. An extra "params" wrapper
+ * causes silent deserialization failure (createModelPars stripped) or 500 (trainCtcPars).
+ */
+function toParameterMap(params: Record<string, string>): { entry: Array<{ key: string; value: string }> } {
+  return {
+    entry: Object.entries(params).map(([key, value]) => ({ key, value })),
+  };
+}
+
+/** Zod schema for textFeatsCfg — all fields optional to allow partial overrides */
+const TextFeatsCfgSchema = z.object({
+  verbose: z.boolean().optional(),
+  deslope: z.boolean().optional(),
+  deslant: z.boolean().optional(),
+  type: z.string().optional(),
+  format: z.string().optional(),
+  stretch: z.boolean().optional(),
+  enh: z.boolean().optional(),
+  enh_win: z.number().optional(),
+  enh_prm: z.number().optional(),
+  normheight: z.number().int().optional(),
+  normxheight: z.number().int().optional(),
+  momentnorm: z.boolean().optional(),
+  fpgram: z.boolean().optional(),
+  fcontour: z.boolean().optional(),
+  fcontour_dilate: z.number().int().optional(),
+  padding: z.number().int().optional(),
+  maxwidth: z.number().int().optional(),
+}).describe('TextFeats preprocessing config. Merged with UI defaults. Set to override specific fields.');
+
 export function registerPylaiaTools(server: McpServer): void {
   // 1. POST /pylaia/{collId}/train
   server.registerTool(
     'transkribus_pylaia_train',
     {
       title: 'Train PyLaia Model',
-      description: 'Start PyLaia HTR model training for a collection.',
+      description:
+        'Start PyLaia HTR model training for a collection. ' +
+        'By default, sends training parameters matching the Transkribus UI defaults ' +
+        '(textFeatsCfg with TextFeats preprocessing, use_masked_conv=True, max_epochs=100). ' +
+        'Without these defaults, the server uses different preprocessing (trpPreprocPars) ' +
+        'which produces significantly worse models. ' +
+        'Set noTrainingDefaults=true to send no training parameters (server defaults).',
       inputSchema: z.object({
         collId: CollIdSchema,
         modelName: z.string().optional().describe('Name for the new model'),
         description: z.string().optional().describe('Description of the model'),
         baseModelId: z.number().int().optional().describe('Base model ID for transfer learning'),
         provider: z.string().optional().default('PyLaia').describe('Training provider (default: "PyLaia")'),
+        language: z.string().optional().describe('Language code (e.g. "rus", "deu", "eng")'),
         trainList: z.array(z.object({ docId: z.number().int(), pageId: z.number().int() })).optional().describe('Training page list'),
         trainListFile: z.string().optional().describe('Absolute path to JSON file containing training page list array of {docId, pageId} objects. Example: /tmp/transkribus-training/train_list.json'),
         testList: z.array(z.object({ docId: z.number().int(), pageId: z.number().int() })).optional().describe('Test page list'),
@@ -40,11 +155,52 @@ export function registerPylaiaTools(server: McpServer): void {
         customAbbrevsTraining: z.boolean().optional().describe('Enable custom abbreviations training'),
         customTagTraining: z.boolean().optional().describe('Enable custom tag training'),
         trainProperties: z.boolean().optional().describe('Enable training properties'),
+
+        // --- Training configuration parameters (UI defaults applied automatically) ---
+        textFeatsCfg: TextFeatsCfgSchema.optional().describe(
+          'TextFeats preprocessing config override. Merged with UI defaults (normheight=64, deslope/deslant=true, enh=true). ' +
+          'Only specify fields you want to change.'
+        ),
+        createModelPars: z.record(z.string(), z.string()).optional().describe(
+          'Model architecture parameters as key-value pairs (e.g. {"--rnn_units": "512"}). ' +
+          'Merged with UI defaults (use_masked_conv=True, cnn_poolsize="2 2 0 2", etc.). ' +
+          'Only specify parameters you want to override.'
+        ),
+        trainCtcPars: z.record(z.string(), z.string()).optional().describe(
+          'CTC training parameters as key-value pairs (e.g. {"--max_epochs": "200"}). ' +
+          'Merged with UI defaults (max_epochs=100, learning_rate=3.0E-4, batch_size=24, etc.). ' +
+          'Only specify parameters you want to override.'
+        ),
+
+        // --- Convenience parameters (override specific trainCtcPars values) ---
+        max_epochs: z.number().int().optional().describe('Maximum training epochs (default: 100). Shortcut for trainCtcPars --max_epochs.'),
+        max_nondecreasing_epochs: z.number().int().optional().describe('Early stopping patience (default: 20). Shortcut for trainCtcPars --max_nondecreasing_epochs.'),
+        learning_rate: z.number().optional().describe('Learning rate (default: 3.0E-4). Shortcut for trainCtcPars --learning_rate.'),
+        batch_size: z.number().int().optional().describe('Batch size (default: 24). Shortcut for trainCtcPars --batch_size.'),
+
+        // --- Opt-out of defaults ---
+        noTrainingDefaults: z.boolean().optional().describe(
+          'If true, do NOT apply UI-default training parameters. ' +
+          'The server will use its own defaults (which differ from the UI and may produce worse models).'
+        ),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     handleToolRequest(async (params) => {
-      const { collId, trainListFile, testListFile, ...body } = params;
+      const {
+        collId,
+        trainListFile,
+        testListFile,
+        textFeatsCfg: textFeatsCfgOverride,
+        createModelPars: createModelParsOverride,
+        trainCtcPars: trainCtcParsOverride,
+        max_epochs,
+        max_nondecreasing_epochs,
+        learning_rate,
+        batch_size,
+        noTrainingDefaults,
+        ...body
+      } = params;
 
       // File params provide defaults; inline params take precedence
       if (trainListFile && !body.trainList) {
@@ -54,9 +210,47 @@ export function registerPylaiaTools(server: McpServer): void {
         body.testList = JSON.parse(readFileSync(testListFile, 'utf-8'));
       }
 
+      // Build training configuration (UI defaults unless opted out)
+      let trainingConfig: Record<string, unknown> = {};
+
+      // GOTCHA: createModelPars and trainCtcPars use JAXB ParameterMap format: {entry: [{key, value}, ...]}
+      // Do NOT wrap in {params: ...} — the extra layer causes silent param stripping or 500.
+      // textFeatsCfg is a regular JAXB bean — sent as flat JSON object (not ParameterMap).
+
+      if (!noTrainingDefaults) {
+        // textFeatsCfg: regular JAXB bean — sent as flat JSON object (not ParameterMap entry format)
+        const mergedTextFeats = { ...DEFAULT_TEXT_FEATS_CFG, ...textFeatsCfgOverride };
+        trainingConfig.textFeatsCfg = mergedTextFeats;
+
+        // createModelPars: JAXB ParameterMap format
+        const mergedCreateModelPars = { ...DEFAULT_CREATE_MODEL_PARS, ...createModelParsOverride };
+        trainingConfig.createModelPars = toParameterMap(mergedCreateModelPars);
+
+        // trainCtcPars: JAXB ParameterMap format, with convenience param overrides
+        const mergedTrainCtcPars = { ...DEFAULT_TRAIN_CTC_PARS, ...trainCtcParsOverride };
+        if (max_epochs !== undefined) mergedTrainCtcPars['--max_epochs'] = String(max_epochs);
+        if (max_nondecreasing_epochs !== undefined) mergedTrainCtcPars['--max_nondecreasing_epochs'] = String(max_nondecreasing_epochs);
+        if (learning_rate !== undefined) mergedTrainCtcPars['--learning_rate'] = String(learning_rate);
+        if (batch_size !== undefined) mergedTrainCtcPars['--batch_size'] = String(batch_size);
+        trainingConfig.trainCtcPars = toParameterMap(mergedTrainCtcPars);
+      } else {
+        // noTrainingDefaults=true: only pass through explicit overrides (no defaults)
+        if (textFeatsCfgOverride) trainingConfig.textFeatsCfg = textFeatsCfgOverride;
+        if (createModelParsOverride) trainingConfig.createModelPars = toParameterMap(createModelParsOverride);
+        if (trainCtcParsOverride) {
+          const pars = { ...trainCtcParsOverride };
+          if (max_epochs !== undefined) pars['--max_epochs'] = String(max_epochs);
+          if (max_nondecreasing_epochs !== undefined) pars['--max_nondecreasing_epochs'] = String(max_nondecreasing_epochs);
+          if (learning_rate !== undefined) pars['--learning_rate'] = String(learning_rate);
+          if (batch_size !== undefined) pars['--batch_size'] = String(batch_size);
+          trainingConfig.trainCtcPars = toParameterMap(pars);
+        }
+      }
+
       // GOTCHA: API expects trainList: {train: [{docId, pageList: {pages: [{pageId}]}}]}, not flat [{docId, pageId}].
       const requestBody = {
         ...body,
+        ...trainingConfig,
         ...(body.trainList && { trainList: { train: groupPagesByDoc(body.trainList) } }),
         ...(body.testList && { testList: { test: groupPagesByDoc(body.testList) } }),
       };
