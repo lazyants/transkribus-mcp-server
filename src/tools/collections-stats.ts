@@ -97,7 +97,7 @@ export function registerCollectionStatsTools(server: McpServer): void {
       description: 'Get collection pages with filtering via POST body.',
       inputSchema: z.object({
         collId: CollIdSchema,
-        body: z.record(z.unknown()).optional().describe('Filter criteria for pages'),
+        body: z.record(z.string(), z.unknown()).optional().describe('Filter criteria for pages'),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },

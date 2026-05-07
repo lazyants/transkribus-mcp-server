@@ -145,7 +145,7 @@ export function registerRecognitionTools(server: McpServer): void {
       inputSchema: z.object({
         collId: CollIdSchema,
         modelId: ModelIdSchema,
-        body: z.record(z.unknown()).optional().describe('Additional error rate computation parameters'),
+        body: z.record(z.string(), z.unknown()).optional().describe('Additional error rate computation parameters'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
@@ -163,7 +163,7 @@ export function registerRecognitionTools(server: McpServer): void {
       description: 'Start CITlab HTR model training for a collection.',
       inputSchema: z.object({
         collId: CollIdSchema,
-        config: z.record(z.unknown()).describe('Training configuration parameters'),
+        config: z.record(z.string(), z.unknown()).describe('Training configuration parameters'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
@@ -181,7 +181,7 @@ export function registerRecognitionTools(server: McpServer): void {
       description: 'Start Layout Analysis 2 model training for a collection.',
       inputSchema: z.object({
         collId: CollIdSchema,
-        config: z.record(z.unknown()).describe('Training configuration parameters'),
+        config: z.record(z.string(), z.unknown()).describe('Training configuration parameters'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
@@ -199,7 +199,7 @@ export function registerRecognitionTools(server: McpServer): void {
       description: 'Start CITlab Layout Analysis model training for a collection.',
       inputSchema: z.object({
         collId: CollIdSchema,
-        config: z.record(z.unknown()).describe('Training configuration parameters'),
+        config: z.record(z.string(), z.unknown()).describe('Training configuration parameters'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
@@ -284,7 +284,7 @@ export function registerRecognitionTools(server: McpServer): void {
       description: 'Run CITlab Text2Image alignment for a collection.',
       inputSchema: z.object({
         collId: CollIdSchema,
-        body: z.record(z.unknown()).describe('Text2Image configuration parameters'),
+        body: z.record(z.string(), z.unknown()).describe('Text2Image configuration parameters'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
@@ -302,7 +302,7 @@ export function registerRecognitionTools(server: McpServer): void {
       description: 'Start table recognition model training for a collection.',
       inputSchema: z.object({
         collId: CollIdSchema,
-        config: z.record(z.unknown()).describe('Training configuration parameters'),
+        config: z.record(z.string(), z.unknown()).describe('Training configuration parameters'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
@@ -376,7 +376,7 @@ export function registerRecognitionTools(server: McpServer): void {
       inputSchema: z.object({
         collId: CollIdSchema,
         id: IdSchema,
-        body: z.record(z.unknown()).describe('Model update data'),
+        body: z.record(z.string(), z.unknown()).describe('Model update data'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -557,7 +557,7 @@ export function registerRecognitionTools(server: McpServer): void {
       inputSchema: z.object({
         collId: CollIdSchema,
         modelId: ModelIdSchema,
-        body: z.record(z.unknown()).describe('Text2Image parameters'),
+        body: z.record(z.string(), z.unknown()).describe('Text2Image parameters'),
         credits: z.string().optional().default('AUTO').describe('Credits parameter'),
         doNotDeleteWorkDir: z.boolean().optional().default(false).describe('Do not delete work directory'),
       }),

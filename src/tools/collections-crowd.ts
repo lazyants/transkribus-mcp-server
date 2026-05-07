@@ -28,7 +28,7 @@ export function registerCollectionCrowdTools(server: McpServer): void {
       description: 'Create or update the crowd project configuration for a collection.',
       inputSchema: z.object({
         collId: CollIdSchema,
-        body: z.record(z.unknown()).describe('Crowd project data'),
+        body: z.record(z.string(), z.unknown()).describe('Crowd project data'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
