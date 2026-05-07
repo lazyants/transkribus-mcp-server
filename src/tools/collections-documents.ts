@@ -126,7 +126,7 @@ export function registerCollectionDocumentTools(server: McpServer): void {
       inputSchema: z.object({
         collId: CollIdSchema,
         id: DocIdSchema,
-        body: z.record(z.unknown()).optional().describe('Editorial declaration data'),
+        body: z.record(z.string(), z.unknown()).optional().describe('Editorial declaration data'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -562,7 +562,7 @@ export function registerCollectionDocumentTools(server: McpServer): void {
       inputSchema: z.object({
         collId: CollIdSchema,
         id: DocIdSchema,
-        body: z.record(z.unknown()).describe('Image name mapping data'),
+        body: z.record(z.string(), z.unknown()).describe('Image name mapping data'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
@@ -581,7 +581,7 @@ export function registerCollectionDocumentTools(server: McpServer): void {
       inputSchema: z.object({
         collId: CollIdSchema,
         id: DocIdSchema,
-        body: z.record(z.unknown()).describe('Document metadata v2 data'),
+        body: z.record(z.string(), z.unknown()).describe('Document metadata v2 data'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },

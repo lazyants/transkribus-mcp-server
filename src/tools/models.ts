@@ -12,7 +12,7 @@ export function registerModelTools(server: McpServer): void {
       title: 'Update Model',
       description: 'Update a model by posting updated model data.',
       inputSchema: z.object({
-        body: z.record(z.unknown()).describe('Model data to update'),
+        body: z.record(z.string(), z.unknown()).describe('Model data to update'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -217,7 +217,7 @@ export function registerModelTools(server: McpServer): void {
       inputSchema: z.object({
         type: z.string().describe('Model type (e.g. htr, la, ocr)'),
         id: IdSchema,
-        body: z.record(z.unknown()).describe('Model update data'),
+        body: z.record(z.string(), z.unknown()).describe('Model update data'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },

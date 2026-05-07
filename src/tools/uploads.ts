@@ -57,7 +57,7 @@ export function registerUploadTools(server: McpServer): void {
       title: 'Bulk Update Document Metadata',
       description: 'Bulk update document metadata for uploads.',
       inputSchema: z.object({
-        metadata: z.array(z.record(z.unknown())).describe('Array of document metadata objects to update'),
+        metadata: z.array(z.record(z.string(), z.unknown())).describe('Array of document metadata objects to update'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -85,7 +85,7 @@ export function registerUploadTools(server: McpServer): void {
       title: 'Bulk Update ISAD Metadata',
       description: 'Bulk update ISAD(G) metadata for uploads.',
       inputSchema: z.object({
-        metadata: z.array(z.record(z.unknown())).describe('Array of ISAD metadata objects to update'),
+        metadata: z.array(z.record(z.string(), z.unknown())).describe('Array of ISAD metadata objects to update'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -138,7 +138,7 @@ export function registerUploadTools(server: McpServer): void {
       description: 'Upload a page to an existing upload.',
       inputSchema: z.object({
         uploadId: IdSchema,
-        pageData: z.record(z.unknown()).optional().describe('Page upload data'),
+        pageData: z.record(z.string(), z.unknown()).optional().describe('Page upload data'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -174,7 +174,7 @@ export function registerUploadTools(server: McpServer): void {
       inputSchema: z.object({
         uploadId: IdSchema,
         collId: z.number().int().optional().describe('Collection ID'),
-        metadata: z.record(z.unknown()).optional().describe('Metadata key-value pairs to update'),
+        metadata: z.record(z.string(), z.unknown()).optional().describe('Metadata key-value pairs to update'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },

@@ -89,3 +89,25 @@ describe('PaginationParams — int coercion', () => {
     expect(withDefault.safeParse({ index: '' }).success).toBe(false);
   });
 });
+
+describe('intCoerce — JSON Schema emit (input mode, MCP tools/list path)', () => {
+  it('keeps required intCoerce-wrapped fields in JSON Schema required[]', () => {
+    const obj = z.object({
+      collId: CollIdSchema,
+      plain: z.number().int(),
+    });
+    const schema = z.toJSONSchema(obj, { io: 'input' });
+    expect(schema.required).toContain('collId');
+    expect(schema.required).toContain('plain');
+  });
+
+  it('still omits .optional() intCoerce fields from required[]', () => {
+    const obj = z.object({
+      index: PaginationParams.index,
+      collId: CollIdSchema,
+    });
+    const schema = z.toJSONSchema(obj, { io: 'input' });
+    expect(schema.required).toContain('collId');
+    expect(schema.required ?? []).not.toContain('index');
+  });
+});

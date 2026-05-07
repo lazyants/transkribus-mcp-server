@@ -11,7 +11,7 @@ export function registerCollectionTagTools(server: McpServer): void {
       title: 'Update Default Tag Definitions',
       description: 'Update the default tag definitions across all collections.',
       inputSchema: z.object({
-        body: z.record(z.unknown()).describe('Tag definitions data'),
+        body: z.record(z.string(), z.unknown()).describe('Tag definitions data'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -45,7 +45,7 @@ export function registerCollectionTagTools(server: McpServer): void {
       description: 'Update tag definitions for a specific collection.',
       inputSchema: z.object({
         collId: CollIdSchema,
-        body: z.record(z.unknown()).describe('Tag definitions data'),
+        body: z.record(z.string(), z.unknown()).describe('Tag definitions data'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
