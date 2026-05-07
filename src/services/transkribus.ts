@@ -81,7 +81,7 @@ function createClient(): AxiosInstance {
             console.error('[transkribus-mcp] Re-authenticated after 401');
             return client.request(config);
           } catch (loginErr) {
-            return Promise.reject(new Error('Session expired and re-authentication failed'));
+            return Promise.reject(new Error('Session expired and re-authentication failed', { cause: loginErr }));
           }
         }
       }
@@ -166,15 +166,15 @@ export async function transkribusRequest<T = unknown>(
     if (err instanceof AxiosError && err.response) {
       const body = err.response.data;
       if (typeof body === 'string' && body.length > 0) {
-        throw new Error(`Transkribus API error ${err.response.status}: ${body}`);
+        throw new Error(`Transkribus API error ${err.response.status}: ${body}`, { cause: err });
       }
       if (body?.message) {
-        throw new Error(`Transkribus API error ${err.response.status}: ${body.message}`);
+        throw new Error(`Transkribus API error ${err.response.status}: ${body.message}`, { cause: err });
       }
-      throw new Error(`Transkribus API error: ${err.response.status} ${err.response.statusText}`);
+      throw new Error(`Transkribus API error: ${err.response.status} ${err.response.statusText}`, { cause: err });
     }
     if (err instanceof AxiosError && err.code) {
-      throw new Error(`Network error: ${err.message}`);
+      throw new Error(`Network error: ${err.message}`, { cause: err });
     }
     throw err;
   }
@@ -197,9 +197,9 @@ export async function transkribusUpload<T = unknown>(
     if (err instanceof AxiosError && err.response) {
       const body = err.response.data;
       if (typeof body === 'string' && body.length > 0) {
-        throw new Error(`Transkribus API error ${err.response.status}: ${body}`);
+        throw new Error(`Transkribus API error ${err.response.status}: ${body}`, { cause: err });
       }
-      throw new Error(`Transkribus API error: ${err.response.status} ${err.response.statusText}`);
+      throw new Error(`Transkribus API error: ${err.response.status} ${err.response.statusText}`, { cause: err });
     }
     throw err;
   }

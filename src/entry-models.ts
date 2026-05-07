@@ -9,6 +9,6 @@ registerAuthTools(server);
 registerModelTools(server);
 
 startServer(server).catch((err) => {
-  console.error('Fatal:', err);
+  console.error('Fatal:', err instanceof Error ? err.message : err);
   process.exit(1);
 });
