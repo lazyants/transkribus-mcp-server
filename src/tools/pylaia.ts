@@ -125,6 +125,79 @@ const TextFeatsCfgSchema = z.object({
   maxwidth: z.number().int().optional(),
 }).describe('TextFeats preprocessing config. Merged with UI defaults. Set to override specific fields.');
 
+export interface PylaiaTrainBodyInput {
+  trainList?: Array<{ docId: number; pageId: number }>;
+  testList?: Array<{ docId: number; pageId: number }>;
+  textFeatsCfg?: Record<string, unknown>;
+  createModelPars?: Record<string, string>;
+  trainCtcPars?: Record<string, string>;
+  max_epochs?: number;
+  max_nondecreasing_epochs?: number;
+  learning_rate?: number;
+  batch_size?: number;
+  noTrainingDefaults?: boolean;
+  [key: string]: unknown;
+}
+
+/**
+ * Build the POST /pylaia/{collId}/train request body from tool params.
+ * Pure: no I/O, no schema validation. Caller resolves trainListFile/testListFile beforehand.
+ *
+ * Default mode: applies Transkribus UI-default training params (textFeatsCfg, createModelPars,
+ * trainCtcPars). Convenience shortcut fields (max_epochs etc.) merge into trainCtcPars.
+ *
+ * `noTrainingDefaults: true` skips UI defaults but still honors explicit `*Pars` overrides
+ * AND the convenience shortcut fields — a shortcut alone is enough to emit `trainCtcPars`.
+ */
+export function buildPylaiaTrainBody(params: PylaiaTrainBodyInput): Record<string, unknown> {
+  const {
+    textFeatsCfg: textFeatsCfgOverride,
+    createModelPars: createModelParsOverride,
+    trainCtcPars: trainCtcParsOverride,
+    max_epochs,
+    max_nondecreasing_epochs,
+    learning_rate,
+    batch_size,
+    noTrainingDefaults,
+    trainList,
+    testList,
+    ...body
+  } = params;
+
+  // Build shortcuts as a key-value map; applied last so they win over trainCtcPars overrides.
+  const shortcuts: Record<string, string> = {};
+  if (max_epochs !== undefined) shortcuts['--max_epochs'] = String(max_epochs);
+  if (max_nondecreasing_epochs !== undefined) shortcuts['--max_nondecreasing_epochs'] = String(max_nondecreasing_epochs);
+  if (learning_rate !== undefined) shortcuts['--learning_rate'] = String(learning_rate);
+  if (batch_size !== undefined) shortcuts['--batch_size'] = String(batch_size);
+  const hasShortcut = Object.keys(shortcuts).length > 0;
+
+  // GOTCHA: createModelPars and trainCtcPars use JAXB ParameterMap format: {entry: [{key, value}, ...]}
+  // Do NOT wrap in {params: ...} — the extra layer causes silent param stripping or 500.
+  // textFeatsCfg is a regular JAXB bean — sent as flat JSON object (not ParameterMap).
+  const trainingConfig: Record<string, unknown> = {};
+
+  if (!noTrainingDefaults) {
+    trainingConfig.textFeatsCfg = { ...DEFAULT_TEXT_FEATS_CFG, ...textFeatsCfgOverride };
+    trainingConfig.createModelPars = toParameterMap({ ...DEFAULT_CREATE_MODEL_PARS, ...createModelParsOverride });
+    trainingConfig.trainCtcPars = toParameterMap({ ...DEFAULT_TRAIN_CTC_PARS, ...trainCtcParsOverride, ...shortcuts });
+  } else {
+    if (textFeatsCfgOverride) trainingConfig.textFeatsCfg = textFeatsCfgOverride;
+    if (createModelParsOverride) trainingConfig.createModelPars = toParameterMap(createModelParsOverride);
+    if (trainCtcParsOverride || hasShortcut) {
+      trainingConfig.trainCtcPars = toParameterMap({ ...trainCtcParsOverride, ...shortcuts });
+    }
+  }
+
+  // GOTCHA: API expects trainList: {train: [{docId, pageList: {pages: [{pageId}]}}]}, not flat [{docId, pageId}].
+  return {
+    ...body,
+    ...trainingConfig,
+    ...(trainList && trainList.length > 0 && { trainList: { train: groupPagesByDoc(trainList) } }),
+    ...(testList && testList.length > 0 && { testList: { test: groupPagesByDoc(testList) } }),
+  };
+}
+
 export function registerPylaiaTools(server: McpServer): void {
   // 1. POST /pylaia/{collId}/train
   server.registerTool(
@@ -187,73 +260,17 @@ export function registerPylaiaTools(server: McpServer): void {
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     handleToolRequest(async (params) => {
-      const {
-        collId,
-        trainListFile,
-        testListFile,
-        textFeatsCfg: textFeatsCfgOverride,
-        createModelPars: createModelParsOverride,
-        trainCtcPars: trainCtcParsOverride,
-        max_epochs,
-        max_nondecreasing_epochs,
-        learning_rate,
-        batch_size,
-        noTrainingDefaults,
-        ...body
-      } = params;
+      const { collId, trainListFile, testListFile, ...rest } = params;
 
       // File params provide defaults; inline params take precedence
-      if (trainListFile && !body.trainList) {
-        body.trainList = JSON.parse(readFileSync(trainListFile, 'utf-8'));
+      if (trainListFile && !rest.trainList) {
+        rest.trainList = JSON.parse(readFileSync(trainListFile, 'utf-8'));
       }
-      if (testListFile && !body.testList) {
-        body.testList = JSON.parse(readFileSync(testListFile, 'utf-8'));
-      }
-
-      // Build training configuration (UI defaults unless opted out)
-      let trainingConfig: Record<string, unknown> = {};
-
-      // GOTCHA: createModelPars and trainCtcPars use JAXB ParameterMap format: {entry: [{key, value}, ...]}
-      // Do NOT wrap in {params: ...} — the extra layer causes silent param stripping or 500.
-      // textFeatsCfg is a regular JAXB bean — sent as flat JSON object (not ParameterMap).
-
-      if (!noTrainingDefaults) {
-        // textFeatsCfg: regular JAXB bean — sent as flat JSON object (not ParameterMap entry format)
-        const mergedTextFeats = { ...DEFAULT_TEXT_FEATS_CFG, ...textFeatsCfgOverride };
-        trainingConfig.textFeatsCfg = mergedTextFeats;
-
-        // createModelPars: JAXB ParameterMap format
-        const mergedCreateModelPars = { ...DEFAULT_CREATE_MODEL_PARS, ...createModelParsOverride };
-        trainingConfig.createModelPars = toParameterMap(mergedCreateModelPars);
-
-        // trainCtcPars: JAXB ParameterMap format, with convenience param overrides
-        const mergedTrainCtcPars = { ...DEFAULT_TRAIN_CTC_PARS, ...trainCtcParsOverride };
-        if (max_epochs !== undefined) mergedTrainCtcPars['--max_epochs'] = String(max_epochs);
-        if (max_nondecreasing_epochs !== undefined) mergedTrainCtcPars['--max_nondecreasing_epochs'] = String(max_nondecreasing_epochs);
-        if (learning_rate !== undefined) mergedTrainCtcPars['--learning_rate'] = String(learning_rate);
-        if (batch_size !== undefined) mergedTrainCtcPars['--batch_size'] = String(batch_size);
-        trainingConfig.trainCtcPars = toParameterMap(mergedTrainCtcPars);
-      } else {
-        // noTrainingDefaults=true: only pass through explicit overrides (no defaults)
-        if (textFeatsCfgOverride) trainingConfig.textFeatsCfg = textFeatsCfgOverride;
-        if (createModelParsOverride) trainingConfig.createModelPars = toParameterMap(createModelParsOverride);
-        if (trainCtcParsOverride) {
-          const pars = { ...trainCtcParsOverride };
-          if (max_epochs !== undefined) pars['--max_epochs'] = String(max_epochs);
-          if (max_nondecreasing_epochs !== undefined) pars['--max_nondecreasing_epochs'] = String(max_nondecreasing_epochs);
-          if (learning_rate !== undefined) pars['--learning_rate'] = String(learning_rate);
-          if (batch_size !== undefined) pars['--batch_size'] = String(batch_size);
-          trainingConfig.trainCtcPars = toParameterMap(pars);
-        }
+      if (testListFile && !rest.testList) {
+        rest.testList = JSON.parse(readFileSync(testListFile, 'utf-8'));
       }
 
-      // GOTCHA: API expects trainList: {train: [{docId, pageList: {pages: [{pageId}]}}]}, not flat [{docId, pageId}].
-      const requestBody = {
-        ...body,
-        ...trainingConfig,
-        ...(body.trainList && { trainList: { train: groupPagesByDoc(body.trainList) } }),
-        ...(body.testList && { testList: { test: groupPagesByDoc(body.testList) } }),
-      };
+      const requestBody = buildPylaiaTrainBody(rest);
       return transkribusRequest('POST', `/pylaia/${collId}/train`, requestBody);
     })
   );
