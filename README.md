@@ -127,6 +127,23 @@ Add to `claude_desktop_config.json`:
 
 This is an unofficial MCP server for Transkribus. The authors are not affiliated with READ-COOP SCE. Use at your own risk.
 
+## Releasing
+
+Releases ship via the GitHub Release event. Maintainer flow:
+
+1. Bump the version in `package.json` and `server.json` (`npm run check-versions` enforces alignment between `package.json#/version` and `server.json#/packages[0].version`).
+2. Update `CHANGELOG.md`.
+3. Commit, then `gh release create vX.Y.Z --notes-from-tag` (or write release notes inline).
+4. The `Publish to npm + MCP Registry` workflow runs automatically: it `npm publish`es with provenance, polls the registry until the tarball is available, then pushes the matching `server.json` to the MCP Registry via `mcp-publisher`.
+
+The workflow skips `npm publish` cleanly if the version is already on npm (cutover guard for releases that were partially published manually).
+
+### npm authentication
+
+Publishing uses **npm Trusted Publishing**: the workflow's GitHub OIDC token (`id-token: write`) is exchanged for a one-shot publish token at runtime. No `NPM_TOKEN` secret needs to live in the repo.
+
+The binding is configured in the npm web UI (package → Trusted Publishers): provider `GitHub Actions`, organization `lazyants`, repository `transkribus-mcp-server`, workflow `publish-registry.yml`.
+
 ## License
 
-MIT — see [LICENSE](LICENSE) for details.
+[FSL-1.1-MIT](LICENSE) — see [LICENSE](LICENSE) for the full terms. Versions `1.x` remain MIT-licensed.
