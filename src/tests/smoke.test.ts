@@ -37,7 +37,6 @@ function freshServer(): McpServer {
   return new McpServer({ name: 'test', version: '0.0.0' });
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function toolCount(server: McpServer): number {
   return Object.keys((server as any)._registeredTools).length;
 }

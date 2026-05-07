@@ -81,7 +81,7 @@ function createClient(): AxiosInstance {
             console.error('[transkribus-mcp] Re-authenticated after 401');
             return client.request(config);
           } catch (loginErr) {
-            return Promise.reject(new Error('Session expired and re-authentication failed'));
+            return Promise.reject(new Error('Session expired and re-authentication failed', { cause: loginErr }));
           }
         }
       }
@@ -146,6 +146,32 @@ function stripUndefined(obj: Record<string, unknown>): Record<string, unknown> {
   return result;
 }
 
+/**
+ * Convert an AxiosError to a plain Error with a Transkribus-flavored message,
+ * preserving the original via `cause`. Non-axios errors are returned unchanged
+ * so the caller can rethrow them as-is.
+ */
+function wrapAxiosError(err: unknown): unknown {
+  if (!(err instanceof AxiosError)) return err;
+
+  if (err.response) {
+    const { status, statusText, data: body } = err.response;
+    if (typeof body === 'string' && body.length > 0) {
+      return new Error(`Transkribus API error ${status}: ${body}`, { cause: err });
+    }
+    if (body?.message) {
+      return new Error(`Transkribus API error ${status}: ${body.message}`, { cause: err });
+    }
+    return new Error(`Transkribus API error: ${status} ${statusText}`, { cause: err });
+  }
+
+  if (err.code) {
+    return new Error(`Network error: ${err.message}`, { cause: err });
+  }
+
+  return err;
+}
+
 export async function transkribusRequest<T = unknown>(
   method: Method,
   path: string,
@@ -163,20 +189,7 @@ export async function transkribusRequest<T = unknown>(
     });
     return response.data;
   } catch (err) {
-    if (err instanceof AxiosError && err.response) {
-      const body = err.response.data;
-      if (typeof body === 'string' && body.length > 0) {
-        throw new Error(`Transkribus API error ${err.response.status}: ${body}`);
-      }
-      if (body?.message) {
-        throw new Error(`Transkribus API error ${err.response.status}: ${body.message}`);
-      }
-      throw new Error(`Transkribus API error: ${err.response.status} ${err.response.statusText}`);
-    }
-    if (err instanceof AxiosError && err.code) {
-      throw new Error(`Network error: ${err.message}`);
-    }
-    throw err;
+    throw wrapAxiosError(err);
   }
 }
 
@@ -194,13 +207,6 @@ export async function transkribusUpload<T = unknown>(
     });
     return response.data;
   } catch (err) {
-    if (err instanceof AxiosError && err.response) {
-      const body = err.response.data;
-      if (typeof body === 'string' && body.length > 0) {
-        throw new Error(`Transkribus API error ${err.response.status}: ${body}`);
-      }
-      throw new Error(`Transkribus API error: ${err.response.status} ${err.response.statusText}`);
-    }
-    throw err;
+    throw wrapAxiosError(err);
   }
 }

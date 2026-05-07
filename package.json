@@ -1,6 +1,6 @@
 {
   "name": "@lazyants/transkribus-mcp-server",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "MCP server for the Transkribus REST API — manage collections, documents, recognition, models, and more. 290 tools across 22 resource domains.",
   "type": "module",
   "main": "dist/index.js",
@@ -19,7 +19,9 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "vitest run",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "node scripts/check-versions.mjs && npm run build",
+    "lint": "eslint .",
+    "check-versions": "node scripts/check-versions.mjs"
   },
   "files": [
     "dist",
@@ -41,15 +43,22 @@
     "url": "git+https://github.com/lazyants/transkribus-mcp-server.git"
   },
   "mcpName": "io.github.lazyants/transkribus",
-  "license": "MIT",
+  "license": "FSL-1.1-MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.27.0",
-    "axios": "^1.7.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "axios": "^1.16.0",
     "zod": "^3.25.0"
   },
   "devDependencies": {
-    "typescript": "^5.5.0",
+    "typescript": "^6.0.0",
     "@types/node": "^20.0.0",
-    "vitest": "^3.0.0"
+    "vitest": "^4.1.0",
+    "eslint": "^10.3.0",
+    "@eslint/js": "^10.0.1",
+    "typescript-eslint": "^8.59.0",
+    "globals": "^17.6.0"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

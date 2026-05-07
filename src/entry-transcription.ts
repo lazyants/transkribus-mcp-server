@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createServer, startServer } from './server.js';
+import { createServer, logFatalAndExit, startServer } from './server.js';
 import { registerAuthTools } from './tools/auth.js';
 import { registerRecognitionTools } from './tools/recognition.js';
 import { registerLayoutAnalysisTools } from './tools/layout-analysis.js';
@@ -16,7 +16,4 @@ registerPylaiaTools(server);
 registerP2palaTools(server);
 registerDuTools(server);
 
-startServer(server).catch((err) => {
-  console.error('Fatal:', err);
-  process.exit(1);
-});
+startServer(server).catch(logFatalAndExit);

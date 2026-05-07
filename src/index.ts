@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createServer, startServer } from './server.js';
+import { createServer, logFatalAndExit, startServer } from './server.js';
 import { registerAuthTools } from './tools/auth.js';
 import { registerCollectionCoreTools } from './tools/collections-core.js';
 import { registerCollectionDocumentTools } from './tools/collections-documents.js';
@@ -83,7 +83,4 @@ registerFileTools(server);
 registerSystemTools(server);
 registerRootTools(server);
 
-startServer(server).catch((err) => {
-  console.error('Fatal:', err);
-  process.exit(1);
-});
+startServer(server).catch(logFatalAndExit);
