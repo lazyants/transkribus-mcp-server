@@ -49,6 +49,10 @@
     "axios": "^1.16.0",
     "zod": "^4.4.3"
   },
+  "overrides": {
+    "fast-uri": "^3.1.2",
+    "brace-expansion": "^5.0.6"
+  },
   "devDependencies": {
     "typescript": "^6.0.0",
     "@types/node": "^20.0.0",
