@@ -8,6 +8,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - npm package: [`@lazyants/transkribus-mcp-server`](https://www.npmjs.com/package/@lazyants/transkribus-mcp-server)
 - MCP Registry: [`io.github.lazyants/transkribus`](https://registry.modelcontextprotocol.io/v0/servers?search=io.github.lazyants/transkribus)
 
+## [2.0.2] — 2026-05-20
+
+### Added
+
+- Targeted contract tests locking in three load-bearing helpers
+  (PR #10):
+  - `formatResponse([…])` omits `structuredContent` (regression
+    guard — the MCP SDK rejects arrays in `structuredContent`).
+  - `formatResponse({…})` sets `structuredContent` for plain objects.
+  - `wrapAxiosError(err)` does NOT leak `config.headers` into the
+    rethrown message (cookie-leak guard from the prior 2.0.1 audit).
+  - `tools/list` integration test proving `.optional()` filter
+    parameters stay out of `required[]` under Zod 4.
+
+### Fixed
+
+- npm `overrides` block pins `fast-uri ^3.1.2` and
+  `brace-expansion ^5.0.6` to clear high/moderate
+  audit advisories that surfaced in transitive deps after the
+  2026-05 dep refresh (PR #8). No runtime behavior change — both
+  packages are dev-transitive.
+- Aligned stale tool-count documentation: `package.json`
+  description, `src/index.ts` collection comment, and `smoke.test.ts`
+  test-name strings now consistently report 301 tools (127
+  collection tools), matching the smoke assertion (PR #9).
+
+### Changed
+
+- Grouped minor+patch dep bump (PR #7): see the Dependabot PR for
+  the exact diff. No behavior changes.
+
 ## [2.0.1] — 2026-05-07
 
 ### Changed
