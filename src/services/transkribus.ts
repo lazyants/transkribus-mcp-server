@@ -150,8 +150,15 @@ function stripUndefined(obj: Record<string, unknown>): Record<string, unknown> {
  * Convert an AxiosError to a plain Error with a Transkribus-flavored message,
  * preserving the original via `cause`. Non-axios errors are returned unchanged
  * so the caller can rethrow them as-is.
+ *
+ * Exported for test access. Default-depth `util.inspect` summarizes nested
+ * objects as `[Object]`, so the JSESSIONID cookie inside `cause.config.headers`
+ * does not surface in standard error logging — see contracts.test.ts and
+ * `gotcha_axios_cause_walk_cookie_leak.md`. Callers that bypass the default
+ * depth (`util.inspect(err, { depth: null })`, `JSON.stringify` with circular
+ * handling, etc.) MUST log `err.message` only.
  */
-function wrapAxiosError(err: unknown): unknown {
+export function wrapAxiosError(err: unknown): unknown {
   if (!(err instanceof AxiosError)) return err;
 
   if (err.response) {
