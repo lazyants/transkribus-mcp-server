@@ -42,13 +42,13 @@ function toolCount(server: McpServer): number {
 }
 
 describe('Transkribus MCP Server — smoke tests', () => {
-  it('registers 290 tools for the full server', () => {
+  it('registers 301 tools for the full server', () => {
     const server = freshServer();
 
     // Auth (6)
     registerAuthTools(server);
 
-    // Collections (117)
+    // Collections (127)
     registerCollectionCoreTools(server);
     registerCollectionDocumentTools(server);
     registerCollectionPageTools(server);
@@ -102,7 +102,7 @@ describe('Transkribus MCP Server — smoke tests', () => {
     expect(toolCount(server)).toBe(6);
   });
 
-  it('registers 126 collection tools', () => {
+  it('registers 127 collection tools', () => {
     const server = freshServer();
     registerCollectionCoreTools(server);
     registerCollectionDocumentTools(server);
