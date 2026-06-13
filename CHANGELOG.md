@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (GHSA-q8mj-m7cp-5q26, `qs.stringify` DoS) and hono 4.12.25
   (GHSA-xrhx-7g5j-rcj5 et al.). No runtime behavior change.
 
+### Changed
+
+- Bumped the minor-and-patch dependency group in the lockfile
+  (5 transitive updates) via Dependabot (PR #13). Lockfile-only — no
+  `package.json` or runtime change.
+
 ## [2.0.2] — 2026-05-20
 
 ### Added
