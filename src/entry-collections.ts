@@ -12,6 +12,7 @@ import { registerCollectionStatsTools } from './tools/collections-stats.js';
 import { registerCollectionLabelTools } from './tools/collections-labels.js';
 import { registerCollectionActivityTools } from './tools/collections-activity.js';
 import { registerCollectionTagTools } from './tools/collections-tags.js';
+import { registerReferenceResource } from './resources/transkribus-reference.js';
 
 const server = createServer('transkribus-mcp-collections');
 
@@ -27,5 +28,6 @@ registerCollectionStatsTools(server);
 registerCollectionLabelTools(server);
 registerCollectionActivityTools(server);
 registerCollectionTagTools(server);
+registerReferenceResource(server);
 
 startServer(server).catch(logFatalAndExit);

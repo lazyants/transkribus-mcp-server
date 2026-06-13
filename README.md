@@ -6,6 +6,8 @@ MCP server for the [Transkribus REST API](https://transkribus.eu/). Manage colle
 
 **301 tools** across 22 resource domains, with 8 entry points so you can pick the right server for your MCP client's tool limit.
 
+> **API scope:** This server covers the **legacy Transkribus TrpServer REST API**. The newer **Processing API v2** (OIDC auth, `/processing/v2`, `account.readcoop.eu`) is intentionally out of scope.
+
 ## Installation
 
 ```bash

@@ -8,6 +8,7 @@ import { registerLabelTools } from './tools/labels.js';
 import { registerFileTools } from './tools/files.js';
 import { registerSystemTools } from './tools/system.js';
 import { registerRootTools } from './tools/root.js';
+import { registerReferenceResource } from './resources/transkribus-reference.js';
 
 const server = createServer('transkribus-mcp-admin');
 
@@ -19,5 +20,6 @@ registerLabelTools(server);
 registerFileTools(server);
 registerSystemTools(server);
 registerRootTools(server);
+registerReferenceResource(server);
 
 startServer(server).catch(logFatalAndExit);

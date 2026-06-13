@@ -6,6 +6,7 @@ import { registerLayoutAnalysisTools } from './tools/layout-analysis.js';
 import { registerPylaiaTools } from './tools/pylaia.js';
 import { registerP2palaTools } from './tools/p2pala.js';
 import { registerDuTools } from './tools/du.js';
+import { registerReferenceResource } from './resources/transkribus-reference.js';
 
 const server = createServer('transkribus-mcp-transcription');
 
@@ -15,5 +16,6 @@ registerLayoutAnalysisTools(server);
 registerPylaiaTools(server);
 registerP2palaTools(server);
 registerDuTools(server);
+registerReferenceResource(server);
 
 startServer(server).catch(logFatalAndExit);

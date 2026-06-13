@@ -239,7 +239,7 @@ describe('Transkribus MCP Server — smoke tests', () => {
   });
 
   // Entry point tests
-  it('registers 123 tools for collections entry point', () => {
+  it('registers 133 tools for collections entry point', () => {
     const server = freshServer();
     registerAuthTools(server);
     registerCollectionCoreTools(server);
@@ -256,7 +256,7 @@ describe('Transkribus MCP Server — smoke tests', () => {
     expect(toolCount(server)).toBe(133); // 6 auth + 127 collections
   });
 
-  it('registers 47 tools for transcription entry point', () => {
+  it('registers 48 tools for transcription entry point', () => {
     const server = freshServer();
     registerAuthTools(server);
     registerRecognitionTools(server);
