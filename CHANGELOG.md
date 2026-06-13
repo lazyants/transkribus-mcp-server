@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - npm package: [`@lazyants/transkribus-mcp-server`](https://www.npmjs.com/package/@lazyants/transkribus-mcp-server)
 - MCP Registry: [`io.github.lazyants/transkribus`](https://registry.modelcontextprotocol.io/v0/servers?search=io.github.lazyants/transkribus)
 
+## [2.0.3] — 2026-06-13
+
+### Security
+
+- Added `qs` (`^6.15.2`) and `hono` (`^4.12.21`) to the `package.json`
+  `overrides` block, plus a two-layer regression test, clearing the
+  `npm audit --omit=dev` CI gate (PR #14). `qs` reaches the production
+  tree via `@modelcontextprotocol/sdk → express → body-parser → qs`, so
+  `--omit=dev` cannot exclude it. The pins resolve qs 6.15.2
+  (GHSA-q8mj-m7cp-5q26, `qs.stringify` DoS) and hono 4.12.25
+  (GHSA-xrhx-7g5j-rcj5 et al.). No runtime behavior change.
+
 ## [2.0.2] — 2026-05-20
 
 ### Added
@@ -106,6 +118,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release under MIT (`io.github.lazyants/transkribus` MCP Registry
   descriptor only; npm package version was `1.0.0`).
 
+[2.0.3]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v2.0.3
 [2.0.2]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v2.0.2
 [2.0.1]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v2.0.1
 [2.0.0]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v2.0.0
