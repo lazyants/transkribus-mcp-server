@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - npm package: [`@lazyants/transkribus-mcp-server`](https://www.npmjs.com/package/@lazyants/transkribus-mcp-server)
 - MCP Registry: [`io.github.lazyants/transkribus`](https://registry.modelcontextprotocol.io/v0/servers?search=io.github.lazyants/transkribus)
 
+## [2.1.0] — 2026-06-13
+
+### Added
+
+- Read-only API-reference MCP Resource `reference://transkribus/api`
+  (`text/markdown`), registered on the main server and all 7 split
+  entry points so clients can pull the API quick-reference without a
+  tool call (PR #17).
+
+### Documentation
+
+- Documented the legacy-only API scope: this server targets the legacy
+  Transkribus TrpServer REST API; the newer Processing API v2 (OIDC,
+  `/processing/v2`, `account.readcoop.eu`) is intentionally out of
+  scope (PR #17).
+
 ## [2.0.3] — 2026-06-13
 
 ### Security
@@ -124,6 +140,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release under MIT (`io.github.lazyants/transkribus` MCP Registry
   descriptor only; npm package version was `1.0.0`).
 
+[2.1.0]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v2.1.0
 [2.0.3]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v2.0.3
 [2.0.2]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v2.0.2
 [2.0.1]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v2.0.1
