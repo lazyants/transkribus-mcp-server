@@ -22,10 +22,12 @@ function core(version: string): number[] | null {
 // Patched floors that clear the audited GHSAs. `min` is derived from `range` so
 // the two can never drift — bumping the override range automatically raises the
 // lockfile floor this test enforces.
-//   qs   ^6.15.2  — GHSA-q8mj-m7cp-5q26 (qs.stringify DoS)
-//   hono ^4.12.21 — GHSA-xrhx-7g5j-rcj5 / 3hrh-pfw6-9m5x / f577-qrjj-4474 / 2gcr-mfcq-wcc3
+//   qs        ^6.15.2 — GHSA-q8mj-m7cp-5q26 (qs.stringify DoS)
+//   hono      ^4.12.25 — GHSA-xrhx-7g5j-rcj5 / 3hrh-pfw6-9m5x / f577-qrjj-4474 / 2gcr-mfcq-wcc3 + serve-static path traversal et al.
+//   form-data ^4.0.6  — GHSA-hmw2-7cc7-3qxx (CRLF injection via unescaped multipart field/file names)
 // `qs` reaches the production tree via @modelcontextprotocol/sdk → express →
-// body-parser → qs, so `npm audit --omit=dev` cannot exclude it.
+// body-parser → qs, so `npm audit --omit=dev` cannot exclude it. `form-data`
+// reaches it via axios.
 function pin(range: string): { range: string; min: number[] } {
   // Strip only a leading caret/tilde operator, then parse the strict core.
   const m = /^[\^~]?(.+)$/.exec(range);
@@ -36,7 +38,8 @@ function pin(range: string): { range: string; min: number[] } {
 
 const PINS = {
   qs: pin('^6.15.2'),
-  hono: pin('^4.12.21'),
+  hono: pin('^4.12.25'),
+  'form-data': pin('^4.0.6'),
 } as const;
 
 function gte(version: string, min: readonly number[]): boolean {
@@ -63,14 +66,15 @@ function resolvedVersions(name: string): string[] {
   return versions;
 }
 
-describe('security overrides — qs & hono (audit-gate regression catcher)', () => {
+describe('security overrides — qs, hono & form-data (audit-gate regression catcher)', () => {
   // Layer (a): the override DECLARATION must exist and be pinned. A lockfile-only
   // check would still pass after someone deletes the overrides block (until the
   // lock is regenerated), so assert the declaration itself.
-  it('declares pinned qs & hono overrides in package.json', () => {
+  it('declares pinned qs, hono & form-data overrides in package.json', () => {
     expect(pkg.overrides).toBeDefined();
     expect(pkg.overrides.qs).toBe(PINS.qs.range);
     expect(pkg.overrides.hono).toBe(PINS.hono.range);
+    expect(pkg.overrides['form-data']).toBe(PINS['form-data'].range);
   });
 
   // Layer (b): every resolved entry in the committed lockfile must satisfy the

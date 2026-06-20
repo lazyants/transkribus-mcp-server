@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - npm package: [`@lazyants/transkribus-mcp-server`](https://www.npmjs.com/package/@lazyants/transkribus-mcp-server)
 - MCP Registry: [`io.github.lazyants/transkribus`](https://registry.modelcontextprotocol.io/v0/servers?search=io.github.lazyants/transkribus)
 
+## [2.1.1] — 2026-06-20
+
+### Security
+
+- Bump the `hono` override to `^4.12.25` and add a `form-data` `^4.0.6`
+  override to clear two HIGH advisories that started failing the
+  `npm audit --audit-level=moderate --omit=dev` CI gate: `form-data` CRLF
+  injection via unescaped multipart field/file names (GHSA-hmw2-7cc7-3qxx)
+  and the `hono` `serve-static` path traversal et al. (`hono <= 4.12.24`).
+  Dependency-only change; no runtime or API behaviour changes.
+
 ## [2.1.0] — 2026-06-13
 
 ### Added
@@ -140,6 +151,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release under MIT (`io.github.lazyants/transkribus` MCP Registry
   descriptor only; npm package version was `1.0.0`).
 
+[2.1.1]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v2.1.1
 [2.1.0]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v2.1.0
 [2.0.3]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v2.0.3
 [2.0.2]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v2.0.2
