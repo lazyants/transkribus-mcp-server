@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import util from 'node:util';
 import { z } from 'zod';
-import { AxiosError } from 'axios';
+import { AxiosError, AxiosHeaders } from 'axios';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import { formatResponse } from '../helpers.js';
-import { wrapAxiosError } from '../services/transkribus.js';
+import { sanitizeAxiosError, sessionExpiredError, wrapAxiosError } from '../services/transkribus.js';
 import { registerCollectionActivityTools } from '../tools/collections-activity.js';
 
 // Internal McpServer shape — same access pattern the smoke test uses.
@@ -41,35 +41,103 @@ describe('formatResponse contract (CallToolResult shape)', () => {
   });
 });
 
-describe('wrapAxiosError — no session-cookie leak via util.inspect', () => {
-  // Regression guard for `gotcha_axios_cause_walk_cookie_leak.md`. The
-  // wrapped Error chains the original AxiosError via { cause: err }; if a
-  // caller ever logs it through default-depth util.inspect, the
-  // JSESSIONID-bearing `config.headers` must not appear in the rendered text.
-  it('default util.inspect does not surface request cookies', () => {
+describe('wrapAxiosError — no session-cookie leak', () => {
+  // Regression guard for `gotcha_axios_cause_walk_cookie_leak.md` + issue #23.
+  // The wrapped Error chains the original AxiosError via { cause: err };
+  // `sanitizeAxiosError` must strip JSESSIONID from every place axios stashes it
+  // (request Cookie header, raw request._header block, response Set-Cookie) so
+  // that NO serialization path — default inspect, depth:null inspect, or toJSON —
+  // surfaces the session cookie.
+
+  // The sentinel cookie value; if it survives anywhere in a chained/serialized
+  // error, the session cookie has leaked into a logger walking the cause.
+  const COOKIE_VALUE = 'session-secret-cookie-value';
+  // A second sentinel proving scrubConfig(err.response?.config) does real work
+  // when response.config is a DISTINCT object (not the same ref as err.config).
+  const RESPONSE_CONFIG_VALUE = 'distinct-response-config-secret';
+
+  // Build a fake AxiosError seeded with the cookie in every location axios stashes
+  // it: request config Cookie header (plus a case-variant key), the raw
+  // request._header block, a DISTINCT response.config carrying its own Cookie, and
+  // a real AxiosHeaders response carrying Set-Cookie (exercises the .delete branch).
+  function makeSeededAxiosError(): AxiosError {
     const fake = new AxiosError(
       'Request failed with status code 500',
       'ERR_BAD_RESPONSE',
     );
-    // Cast through unknown — AxiosError.config is a typed shape, but for
-    // leak testing we just need the runtime properties present.
     (fake as unknown as { config: unknown }).config = {
       url: '/collections/1/activity/recognition',
       method: 'GET',
-      headers: { Cookie: 'JSESSIONID=session-secret-cookie-value' },
+      headers: {
+        Cookie: `JSESSIONID=${COOKIE_VALUE}`,
+        COOKIE: `JSESSIONID=${COOKIE_VALUE}`, // case-variant key locks case-insensitivity
+      },
     };
+    (fake as unknown as { request: unknown }).request = {
+      _header: `GET /collections/1/activity/recognition HTTP/1.1\r\nCookie: JSESSIONID=${COOKIE_VALUE}\r\n\r\n`,
+    };
+    const responseHeaders = new AxiosHeaders();
+    responseHeaders.set('set-cookie', [`JSESSIONID=${COOKIE_VALUE}; Path=/; HttpOnly`]);
     (fake as unknown as { response: unknown }).response = {
       status: 500,
       statusText: 'Internal Server Error',
       data: 'something broke',
-      headers: {},
+      headers: responseHeaders,
+      // Distinct config object (NOT the err.config ref) with its own cookie.
+      config: {
+        url: '/collections/1/activity/recognition',
+        method: 'GET',
+        headers: { Cookie: `JSESSIONID=${RESPONSE_CONFIG_VALUE}` },
+      },
+      request: {
+        _header: `GET /collections/1/activity/recognition HTTP/1.1\r\nCookie: JSESSIONID=${COOKIE_VALUE}\r\n\r\n`,
+      },
     };
+    return fake;
+  }
 
-    const wrapped = wrapAxiosError(fake);
+  // The cookie/JSESSIONID must appear in NEITHER a deep inspect NOR a toJSON-based
+  // JSON serialization. axios toJSON() embeds config/code/status but not
+  // response.headers, so the Set-Cookie leak is caught by the depth:null inspect —
+  // both assertions are kept.
+  function assertNoCookieLeak(x: unknown): void {
+    const inspected = util.inspect(x, { depth: null });
+    expect(inspected).not.toContain('JSESSIONID');
+    expect(inspected).not.toContain(COOKIE_VALUE);
+    expect(inspected).not.toContain(RESPONSE_CONFIG_VALUE);
+
+    const cause = (x as { cause?: { toJSON?: () => unknown } }).cause;
+    const self = x as { toJSON?: () => unknown };
+    const serialized = JSON.stringify(cause?.toJSON?.() ?? self.toJSON?.() ?? x);
+    expect(serialized).not.toContain('JSESSIONID');
+    expect(serialized).not.toContain(COOKIE_VALUE);
+    expect(serialized).not.toContain(RESPONSE_CONFIG_VALUE);
+  }
+
+  it('sanitizeAxiosError scrubs every cookie location (direct unit)', () => {
+    const fake = makeSeededAxiosError();
+    sanitizeAxiosError(fake);
+    assertNoCookieLeak(fake);
+  });
+
+  it('wrapAxiosError leaks no cookie via inspect/toJSON and keeps the message (regression #23)', () => {
+    const wrapped = wrapAxiosError(makeSeededAxiosError());
     expect(wrapped).toBeInstanceOf(Error);
+    expect((wrapped as Error).message).toBe('Transkribus API error 500: something broke');
+    assertNoCookieLeak(wrapped);
+  });
 
+  it('sessionExpiredError leaks no cookie and keeps the re-auth message', () => {
+    const result = sessionExpiredError(makeSeededAxiosError());
+    expect(result).toBeInstanceOf(Error);
+    expect(result.message).toBe('Session expired and re-authentication failed');
+    assertNoCookieLeak(result);
+  });
+
+  it('default util.inspect does not surface request cookies', () => {
+    const wrapped = wrapAxiosError(makeSeededAxiosError());
     const rendered = util.inspect(wrapped);
-    expect(rendered).not.toContain('session-secret-cookie-value');
+    expect(rendered).not.toContain(COOKIE_VALUE);
     expect(rendered).not.toContain('JSESSIONID');
   });
 
