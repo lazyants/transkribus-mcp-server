@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - npm package: [`@lazyants/transkribus-mcp-server`](https://www.npmjs.com/package/@lazyants/transkribus-mcp-server)
 - MCP Registry: [`io.github.lazyants/transkribus`](https://registry.modelcontextprotocol.io/v0/servers?search=io.github.lazyants/transkribus)
 
+## [2.1.2] — 2026-06-22
+
+### Security
+
+- Harden `wrapAxiosError` so the `JSESSIONID` session cookie can no longer leak
+  through a chained/serialized error. `sanitizeAxiosError` now strips the request
+  `Cookie` header, response `Set-Cookie` header, the raw `request._header` block,
+  and `authorization`/`proxy-authorization`/`config.auth`/`proxy.auth` in place
+  before the error is chained via `{ cause: err }`. Closed on every path: the normal
+  request path, the 401 re-auth path (`sessionExpiredError`), and the initial-login
+  failure path (`login()` now sanitizes its own `AxiosError`). New regression tests
+  assert no leak under `util.inspect(err, { depth: null })` and `AxiosError.toJSON()`.
+  Sibling of lexware #51. Resolves #23. No runtime or API behaviour change.
+
 ## [2.1.1] — 2026-06-20
 
 ### Security
@@ -151,6 +165,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release under MIT (`io.github.lazyants/transkribus` MCP Registry
   descriptor only; npm package version was `1.0.0`).
 
+[2.1.2]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v2.1.2
 [2.1.1]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v2.1.1
 [2.1.0]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v2.1.0
 [2.0.3]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v2.0.3

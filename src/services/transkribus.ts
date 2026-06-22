@@ -28,9 +28,15 @@ async function login(client: AxiosInstance): Promise<string> {
   params.append('user', creds.user);
   params.append('pw', creds.password);
 
-  const response = await client.post('/auth/login', params.toString(), {
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-  });
+  let response;
+  try {
+    response = await client.post('/auth/login', params.toString(), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
+  } catch (err) {
+    if (err instanceof AxiosError) sanitizeAxiosError(err); // strip JSESSIONID; password (config.data) → follow-up issue
+    throw err; // rethrow caught binding (preserve-caught-error ok)
+  }
 
   const cookies = response.headers['set-cookie'];
   if (cookies) {
@@ -81,7 +87,7 @@ function createClient(): AxiosInstance {
             console.error('[transkribus-mcp] Re-authenticated after 401');
             return client.request(config);
           } catch (loginErr) {
-            return Promise.reject(new Error('Session expired and re-authentication failed', { cause: loginErr }));
+            return Promise.reject(sessionExpiredError(loginErr));
           }
         }
       }
@@ -146,20 +152,78 @@ function stripUndefined(obj: Record<string, unknown>): Record<string, unknown> {
   return result;
 }
 
+// Headers that must never survive on an AxiosError we chain as `{ cause: err }`.
+// `set-cookie` is transkribus-specific: the /auth/login response carries
+// JSESSIONID there, and the server may re-issue it on any response.
+const SENSITIVE_HEADERS = new Set([
+  'authorization', 'proxy-authorization', 'cookie', 'set-cookie',
+]);
+
+// Remove auth-bearing headers case-insensitively from an AxiosHeaders instance
+// (which exposes .delete) OR a plain object. A fixed-case delete would miss a
+// plain key like `COOKIE`, so iterate the actual keys. Type-guard `.delete`
+// because a plain object whose own key is literally "delete" would otherwise throw.
+function scrubAuth(headers: unknown): void {
+  if (!headers || typeof headers !== 'object') return;
+  const h = headers as Record<string, unknown> & { delete?: unknown };
+  const del = typeof h.delete === 'function' ? (h.delete as (k: string) => void) : null;
+  for (const key of Object.keys(h)) {
+    if (SENSITIVE_HEADERS.has(key.toLowerCase())) {
+      del?.call(h, key); // AxiosHeaders removes its normalized entry
+      delete h[key]; // plain-object / belt-and-suspenders
+    }
+  }
+}
+
+// Scrub credential-bearing fields on a request/response config: headers + auth + proxy.auth.
+function scrubConfig(config: unknown): void {
+  if (!config || typeof config !== 'object') return;
+  const c = config as { headers?: unknown; auth?: unknown; proxy?: { auth?: unknown } | null };
+  scrubAuth(c.headers);
+  delete c.auth;
+  if (c.proxy && typeof c.proxy === 'object') delete c.proxy.auth;
+}
+
+// Void mutator: strip the JSESSIONID session cookie (request Cookie header,
+// response Set-Cookie header, the raw `request._header` block) plus auth headers
+// from an AxiosError before it is chained via `{ cause: err }`. Mutating in place
+// (vs building a fresh cause) keeps the literal caught binding available for
+// `{ cause: err }`, satisfying eslint preserve-caught-error.
+export function sanitizeAxiosError(err: AxiosError): void {
+  scrubConfig(err.config);
+  scrubConfig(err.response?.config); // may be a distinct ref depending on the adapter
+  scrubAuth(err.response?.headers); // response Set-Cookie can carry JSESSIONID
+  delete (err as { request?: unknown }).request; // carries request._header raw block
+  if (err.response) delete (err.response as { request?: unknown }).request;
+  const e = err as { cause?: unknown };
+  if (e.cause && typeof e.cause === 'object') delete e.cause;
+}
+
+/** Build the 401 re-auth failure error, sanitizing the login AxiosError (it carries
+ *  the stale JSESSIONID cookie) before chaining it as `cause`. Exported for the
+ *  cookie-leak regression test of this plain-Error re-auth path. Defense-in-depth:
+ *  login() also sanitizes, so this is idempotent. */
+export function sessionExpiredError(loginErr: unknown): Error {
+  if (loginErr instanceof AxiosError) sanitizeAxiosError(loginErr);
+  return new Error('Session expired and re-authentication failed', { cause: loginErr });
+}
+
 /**
  * Convert an AxiosError to a plain Error with a Transkribus-flavored message,
  * preserving the original via `cause`. Non-axios errors are returned unchanged
  * so the caller can rethrow them as-is.
  *
- * Exported for test access. Default-depth `util.inspect` summarizes nested
- * objects as `[Object]`, so the JSESSIONID cookie inside `cause.config.headers`
- * does not surface in standard error logging — see contracts.test.ts and
- * `gotcha_axios_cause_walk_cookie_leak.md`. Callers that bypass the default
- * depth (`util.inspect(err, { depth: null })`, `JSON.stringify` with circular
- * handling, etc.) MUST log `err.message` only.
+ * Exported for test access. Before chaining, `sanitizeAxiosError` strips the
+ * session cookie (`cookie` / `set-cookie` headers) plus `authorization` /
+ * `proxy-authorization` headers, `config.auth` / `proxy.auth`, and the raw
+ * `request` blocks (`request._header`) in place — so deep-walk logging
+ * (`util.inspect(err, { depth: null })`, `AxiosError.toJSON()`, `JSON.stringify`)
+ * cannot surface `JSESSIONID`. See contracts.test.ts and
+ * `gotcha_axios_cause_walk_cookie_leak.md`.
  */
 export function wrapAxiosError(err: unknown): unknown {
   if (!(err instanceof AxiosError)) return err;
+  sanitizeAxiosError(err);
 
   if (err.response) {
     const { status, statusText, data: body } = err.response;
