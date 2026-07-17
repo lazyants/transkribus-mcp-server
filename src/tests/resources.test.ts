@@ -78,12 +78,12 @@ describe('reference resource — list & read over the protocol', () => {
 describe('reference resource — additive capability', () => {
   it('does not regress tool registration when resources are added', async () => {
     const client = await connect((s) => {
-      registerAuthTools(s); // 6 tools
+      registerAuthTools(s); // 5 tools
       registerReferenceResource(s);
     });
 
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(6);
+    expect(tools).toHaveLength(5);
 
     const { resources } = await client.listResources();
     expect(resources.some((r) => r.uri === REFERENCE_URI)).toBe(true);

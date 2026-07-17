@@ -42,10 +42,10 @@ function toolCount(server: McpServer): number {
 }
 
 describe('Transkribus MCP Server — smoke tests', () => {
-  it('registers 301 tools for the full server', () => {
+  it('registers 300 tools for the full server', () => {
     const server = freshServer();
 
-    // Auth (6)
+    // Auth (5)
     registerAuthTools(server);
 
     // Collections (127)
@@ -61,7 +61,7 @@ describe('Transkribus MCP Server — smoke tests', () => {
     registerCollectionActivityTools(server);
     registerCollectionTagTools(server);
 
-    // Recognition & Training (41)
+    // Recognition & Training (42)
     registerRecognitionTools(server);
     registerLayoutAnalysisTools(server);
     registerPylaiaTools(server);
@@ -84,7 +84,7 @@ describe('Transkribus MCP Server — smoke tests', () => {
     registerCrowdsourcingTools(server);
     registerElearningTools(server);
 
-    // Admin & System & Resources (49)
+    // Admin & System & Resources (57)
     registerAdminTools(server);
     registerCreditTools(server);
     registerUploadTools(server);
@@ -93,13 +93,13 @@ describe('Transkribus MCP Server — smoke tests', () => {
     registerSystemTools(server);
     registerRootTools(server);
 
-    expect(toolCount(server)).toBe(301);
+    expect(toolCount(server)).toBe(300);
   });
 
-  it('registers 6 auth tools', () => {
+  it('registers 5 auth tools', () => {
     const server = freshServer();
     registerAuthTools(server);
-    expect(toolCount(server)).toBe(6);
+    expect(toolCount(server)).toBe(5);
   });
 
   it('registers 127 collection tools', () => {
@@ -239,7 +239,7 @@ describe('Transkribus MCP Server — smoke tests', () => {
   });
 
   // Entry point tests
-  it('registers 133 tools for collections entry point', () => {
+  it('registers 132 tools for collections entry point', () => {
     const server = freshServer();
     registerAuthTools(server);
     registerCollectionCoreTools(server);
@@ -253,10 +253,10 @@ describe('Transkribus MCP Server — smoke tests', () => {
     registerCollectionLabelTools(server);
     registerCollectionActivityTools(server);
     registerCollectionTagTools(server);
-    expect(toolCount(server)).toBe(133); // 6 auth + 127 collections
+    expect(toolCount(server)).toBe(132); // 5 auth + 127 collections
   });
 
-  it('registers 48 tools for transcription entry point', () => {
+  it('registers 47 tools for transcription entry point', () => {
     const server = freshServer();
     registerAuthTools(server);
     registerRecognitionTools(server);
@@ -264,42 +264,42 @@ describe('Transkribus MCP Server — smoke tests', () => {
     registerPylaiaTools(server);
     registerP2palaTools(server);
     registerDuTools(server);
-    expect(toolCount(server)).toBe(48); // 6 + 33 + 5 + 2 + 1 + 1
+    expect(toolCount(server)).toBe(47); // 5 + 33 + 5 + 2 + 1 + 1
   });
 
-  it('registers 27 tools for models entry point', () => {
+  it('registers 26 tools for models entry point', () => {
     const server = freshServer();
     registerAuthTools(server);
     registerModelTools(server);
-    expect(toolCount(server)).toBe(27); // 6 + 21
+    expect(toolCount(server)).toBe(26); // 5 + 21
   });
 
-  it('registers 17 tools for search entry point', () => {
+  it('registers 16 tools for search entry point', () => {
     const server = freshServer();
     registerAuthTools(server);
     registerSearchTools(server);
     registerKwsTools(server);
-    expect(toolCount(server)).toBe(17); // 6 + 6 + 5
+    expect(toolCount(server)).toBe(16); // 5 + 6 + 5
   });
 
-  it('registers 19 tools for jobs entry point', () => {
+  it('registers 18 tools for jobs entry point', () => {
     const server = freshServer();
     registerAuthTools(server);
     registerJobTools(server);
     registerActionTools(server);
-    expect(toolCount(server)).toBe(19); // 6 + 10 + 3
+    expect(toolCount(server)).toBe(18); // 5 + 10 + 3
   });
 
-  it('registers 30 tools for users entry point', () => {
+  it('registers 29 tools for users entry point', () => {
     const server = freshServer();
     registerAuthTools(server);
     registerUserTools(server);
     registerCrowdsourcingTools(server);
     registerElearningTools(server);
-    expect(toolCount(server)).toBe(30); // 6 + 15 + 5 + 4
+    expect(toolCount(server)).toBe(29); // 5 + 15 + 5 + 4
   });
 
-  it('registers 63 tools for admin entry point', () => {
+  it('registers 62 tools for admin entry point', () => {
     const server = freshServer();
     registerAuthTools(server);
     registerAdminTools(server);
@@ -309,6 +309,6 @@ describe('Transkribus MCP Server — smoke tests', () => {
     registerFileTools(server);
     registerSystemTools(server);
     registerRootTools(server);
-    expect(toolCount(server)).toBe(63); // 6 + 8 + 12 + 11 + 13 + 3 + 2 + 8
+    expect(toolCount(server)).toBe(62); // 5 + 8 + 12 + 11 + 13 + 3 + 2 + 8
   });
 });

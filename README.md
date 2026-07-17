@@ -4,7 +4,7 @@
 
 MCP server for the [Transkribus REST API](https://transkribus.eu/). Manage collections, documents, HTR/OCR recognition, models, and more through the Model Context Protocol.
 
-**301 tools** across 22 resource domains, with 8 entry points so you can pick the right server for your MCP client's tool limit.
+**300 tools** across 22 resource domains, with 8 entry points so you can pick the right server for your MCP client's tool limit.
 
 > **API scope:** This server covers the **legacy Transkribus TrpServer REST API**. The newer **Processing API v2** (OIDC auth, `/processing/v2`, `account.readcoop.eu`) is intentionally out of scope.
 
@@ -45,14 +45,14 @@ Use this if you already have a valid session from the Transkribus platform.
 
 | Command | Domains | Tools |
 |---|---|---|
-| `transkribus-mcp-server` | All 22 domains | 301 |
-| `transkribus-mcp-collections` | Auth, Collections (core/docs/pages/users/crowd/editdecl/credits/stats/labels/activity/tags) | 133 |
-| `transkribus-mcp-admin` | Auth, Admin, Credits, Uploads, Labels, Files, System, Root | 63 |
-| `transkribus-mcp-transcription` | Auth, Recognition, Layout Analysis, PyLaia, P2PaLA, DU | 48 |
-| `transkribus-mcp-users` | Auth, Users, Crowdsourcing, eLearning | 30 |
-| `transkribus-mcp-models` | Auth, Models | 27 |
-| `transkribus-mcp-jobs` | Auth, Jobs, Actions | 19 |
-| `transkribus-mcp-search` | Auth, Search, KWS | 17 |
+| `transkribus-mcp-server` | All 22 domains | 300 |
+| `transkribus-mcp-collections` | Auth, Collections (core/docs/pages/users/crowd/editdecl/credits/stats/labels/activity/tags) | 132 |
+| `transkribus-mcp-admin` | Auth, Admin, Credits, Uploads, Labels, Files, System, Root | 62 |
+| `transkribus-mcp-transcription` | Auth, Recognition, Layout Analysis, PyLaia, P2PaLA, DU | 47 |
+| `transkribus-mcp-users` | Auth, Users, Crowdsourcing, eLearning | 29 |
+| `transkribus-mcp-models` | Auth, Models | 26 |
+| `transkribus-mcp-jobs` | Auth, Jobs, Actions | 18 |
+| `transkribus-mcp-search` | Auth, Search, KWS | 16 |
 
 Use split servers to reduce context size — pick only the splits you need.
 

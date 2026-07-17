@@ -38,21 +38,6 @@ export function registerAuthTools(server: McpServer): void {
   );
 
   server.registerTool(
-    'transkribus_auth_login',
-    {
-      title: 'Login',
-      description: 'Authenticate with Transkribus using username and password.',
-      inputSchema: z.object({
-        user: z.string().describe('Transkribus username or email'),
-        pw: z.string().describe('Transkribus password'),
-        otp: z.string().optional().describe('One-time password for 2FA'),
-      }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-    },
-    handleToolRequest(async (params) => transkribusRequest('POST', '/auth/login', undefined, params))
-  );
-
-  server.registerTool(
     'transkribus_auth_logout',
     {
       title: 'Logout',
