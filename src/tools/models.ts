@@ -2,7 +2,15 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { transkribusRequest } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
-import { CollIdSchema, ModelIdSchema, IdSchema, PaginationParams, intCoerce } from '../schemas/common.js';
+import {
+  CollIdSchema,
+  ModelIdSchema,
+  IdSchema,
+  PaginationParams,
+  intCoerce,
+  PathSegmentSchema,
+  pathSeg,
+} from '../schemas/common.js';
 
 export function registerModelTools(server: McpServer): void {
   // 1. POST /models/
@@ -162,7 +170,7 @@ export function registerModelTools(server: McpServer): void {
       title: 'Get Models by Type',
       description: 'Get models filtered by type with optional query parameters.',
       inputSchema: z.object({
-        type: z.string().describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
         collId: intCoerce(z.number().int()).optional().describe('Filter by collection ID'),
         userid: intCoerce(z.number().int()).optional().describe('Filter by user ID'),
         filter: z.string().optional().describe('Filter string'),
@@ -186,7 +194,7 @@ export function registerModelTools(server: McpServer): void {
     },
     handleToolRequest(async (params) => {
       const { type, ...rest } = params;
-      return transkribusRequest('GET', `/models/${type}`, undefined, rest);
+      return transkribusRequest('GET', `/models/${pathSeg(type)}`, undefined, rest);
     })
   );
 
@@ -197,14 +205,14 @@ export function registerModelTools(server: McpServer): void {
       title: 'Get Model Details',
       description: 'Get detailed information about a model by type and ID.',
       inputSchema: z.object({
-        type: z.string().describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
         id: IdSchema,
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     handleToolRequest(async (params) => {
       const { type, id } = params;
-      return transkribusRequest('GET', `/models/${type}/${id}`);
+      return transkribusRequest('GET', `/models/${pathSeg(type)}/${id}`);
     })
   );
 
@@ -215,7 +223,7 @@ export function registerModelTools(server: McpServer): void {
       title: 'Update Model by Type',
       description: 'Update a model by its type and ID.',
       inputSchema: z.object({
-        type: z.string().describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
         id: IdSchema,
         body: z.record(z.string(), z.unknown()).describe('Model update data'),
       }),
@@ -223,7 +231,7 @@ export function registerModelTools(server: McpServer): void {
     },
     handleToolRequest(async (params) => {
       const { type, id, body } = params;
-      return transkribusRequest('POST', `/models/${type}/${id}`, body);
+      return transkribusRequest('POST', `/models/${pathSeg(type)}/${id}`, body);
     })
   );
 
@@ -234,14 +242,14 @@ export function registerModelTools(server: McpServer): void {
       title: 'Delete Model by Type',
       description: 'Delete a model by its type and ID.',
       inputSchema: z.object({
-        type: z.string().describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
         id: IdSchema,
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     },
     handleToolRequest(async (params) => {
       const { type, id } = params;
-      return transkribusRequest('DELETE', `/models/${type}/${id}`);
+      return transkribusRequest('DELETE', `/models/${pathSeg(type)}/${id}`);
     })
   );
 
@@ -252,14 +260,14 @@ export function registerModelTools(server: McpServer): void {
       title: 'List Model Collections',
       description: 'List collections associated with a model by type and ID.',
       inputSchema: z.object({
-        type: z.string().describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
         id: IdSchema,
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     handleToolRequest(async (params) => {
       const { type, id } = params;
-      return transkribusRequest('GET', `/models/${type}/${id}/collections`);
+      return transkribusRequest('GET', `/models/${pathSeg(type)}/${id}/collections`);
     })
   );
 
@@ -270,14 +278,14 @@ export function registerModelTools(server: McpServer): void {
       title: 'Get Model Field Parameters',
       description: 'Get the field parameters for a model by type and ID.',
       inputSchema: z.object({
-        type: z.string().describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
         id: IdSchema,
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     handleToolRequest(async (params) => {
       const { type, id } = params;
-      return transkribusRequest('GET', `/models/${type}/${id}/fieldParams`);
+      return transkribusRequest('GET', `/models/${pathSeg(type)}/${id}/fieldParams`);
     })
   );
 
@@ -288,7 +296,7 @@ export function registerModelTools(server: McpServer): void {
       title: 'Get Model Training Data',
       description: 'Get the training data for a model by type and ID.',
       inputSchema: z.object({
-        type: z.string().describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
         id: IdSchema,
         index: intCoerce(z.number().int()).optional().describe('Start index (0-based)'),
         nValues: intCoerce(z.number().int()).optional().describe('Number of values to return'),
@@ -297,7 +305,7 @@ export function registerModelTools(server: McpServer): void {
     },
     handleToolRequest(async (params) => {
       const { type, id, ...query } = params;
-      return transkribusRequest('GET', `/models/${type}/${id}/trainData`, undefined, query);
+      return transkribusRequest('GET', `/models/${pathSeg(type)}/${id}/trainData`, undefined, query);
     })
   );
 
@@ -308,7 +316,7 @@ export function registerModelTools(server: McpServer): void {
       title: 'Get Training Data Documents',
       description: 'Get the documents used as training data for a model.',
       inputSchema: z.object({
-        type: z.string().describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
         id: IdSchema,
         index: intCoerce(z.number().int()).optional().default(0).describe('Start index'),
         nValues: intCoerce(z.number().int()).optional().default(-1).describe('Number of values'),
@@ -317,7 +325,7 @@ export function registerModelTools(server: McpServer): void {
     },
     handleToolRequest(async (params) => {
       const { type, id, ...query } = params;
-      return transkribusRequest('GET', `/models/${type}/${id}/trainData/docs`, undefined, query);
+      return transkribusRequest('GET', `/models/${pathSeg(type)}/${id}/trainData/docs`, undefined, query);
     })
   );
 
@@ -328,14 +336,14 @@ export function registerModelTools(server: McpServer): void {
       title: 'Get Training Data Statistics',
       description: 'Get statistics about the training data for a model.',
       inputSchema: z.object({
-        type: z.string().describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
         id: IdSchema,
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     handleToolRequest(async (params) => {
       const { type, id } = params;
-      return transkribusRequest('GET', `/models/${type}/${id}/trainData/stats`);
+      return transkribusRequest('GET', `/models/${pathSeg(type)}/${id}/trainData/stats`);
     })
   );
 
@@ -346,7 +354,7 @@ export function registerModelTools(server: McpServer): void {
       title: 'Get Validation Data',
       description: 'Get the validation data for a model by type and ID.',
       inputSchema: z.object({
-        type: z.string().describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
         id: IdSchema,
         index: intCoerce(z.number().int()).optional().default(0).describe('Start index'),
         nValues: intCoerce(z.number().int()).optional().default(-1).describe('Number of values'),
@@ -355,7 +363,7 @@ export function registerModelTools(server: McpServer): void {
     },
     handleToolRequest(async (params) => {
       const { type, id, ...query } = params;
-      return transkribusRequest('GET', `/models/${type}/${id}/validationData`, undefined, query);
+      return transkribusRequest('GET', `/models/${pathSeg(type)}/${id}/validationData`, undefined, query);
     })
   );
 
@@ -366,7 +374,7 @@ export function registerModelTools(server: McpServer): void {
       title: 'Get Validation Data Documents',
       description: 'Get the documents used as validation data for a model.',
       inputSchema: z.object({
-        type: z.string().describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
         id: IdSchema,
         index: intCoerce(z.number().int()).optional().default(0).describe('Start index'),
         nValues: intCoerce(z.number().int()).optional().default(-1).describe('Number of values'),
@@ -375,7 +383,7 @@ export function registerModelTools(server: McpServer): void {
     },
     handleToolRequest(async (params) => {
       const { type, id, ...query } = params;
-      return transkribusRequest('GET', `/models/${type}/${id}/validationData/docs`, undefined, query);
+      return transkribusRequest('GET', `/models/${pathSeg(type)}/${id}/validationData/docs`, undefined, query);
     })
   );
 
@@ -386,14 +394,14 @@ export function registerModelTools(server: McpServer): void {
       title: 'Get Validation Data Statistics',
       description: 'Get statistics about the validation data for a model.',
       inputSchema: z.object({
-        type: z.string().describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
         id: IdSchema,
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     handleToolRequest(async (params) => {
       const { type, id } = params;
-      return transkribusRequest('GET', `/models/${type}/${id}/validationData/stats`);
+      return transkribusRequest('GET', `/models/${pathSeg(type)}/${id}/validationData/stats`);
     })
   );
 
@@ -404,7 +412,7 @@ export function registerModelTools(server: McpServer): void {
       title: 'Add Collection to Model',
       description: 'Add a collection to a model by type and model ID.',
       inputSchema: z.object({
-        type: z.string().describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
         modelId: ModelIdSchema,
         collId: CollIdSchema.describe('Collection ID to add'),
       }),
@@ -412,7 +420,7 @@ export function registerModelTools(server: McpServer): void {
     },
     handleToolRequest(async (params) => {
       const { type, modelId, collId } = params;
-      return transkribusRequest('POST', `/models/${type}/${modelId}/collections`, { collId });
+      return transkribusRequest('POST', `/models/${pathSeg(type)}/${modelId}/collections`, { collId });
     })
   );
 
@@ -423,7 +431,7 @@ export function registerModelTools(server: McpServer): void {
       title: 'Remove Collection from Model',
       description: 'Remove a collection from a model by type, model ID, and collection ID.',
       inputSchema: z.object({
-        type: z.string().describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
         modelId: ModelIdSchema,
         collId: CollIdSchema,
       }),
@@ -431,7 +439,7 @@ export function registerModelTools(server: McpServer): void {
     },
     handleToolRequest(async (params) => {
       const { type, modelId, collId } = params;
-      return transkribusRequest('DELETE', `/models/${type}/${modelId}/collections/${collId}`);
+      return transkribusRequest('DELETE', `/models/${pathSeg(type)}/${modelId}/collections/${collId}`);
     })
   );
 }

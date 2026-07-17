@@ -51,6 +51,28 @@ export const ModelIdSchema = intCoerce(z.number().int().positive()).describe('Mo
 export const IdSchema = intCoerce(z.number().int().positive()).describe('Resource ID');
 export const TranscriptIdSchema = intCoerce(z.number().int().positive()).describe('Transcript ID');
 
+// Encodes a single path segment for interpolation into a REST URL template
+// (e.g. `/models/${pathSeg(type)}`). encodeURIComponent alone does NOT stop
+// path traversal: it never escapes '.', so pathSeg('..') === '..' — and
+// every call site here supplies its own literal '/' around the segment, so
+// a raw '..' still normalizes up a directory. This function only guards
+// against '? # % <space>'-class characters; PathSegmentSchema below is the
+// layer that rejects '', '.', and '..' before a URL is ever built. Both
+// layers are required — see gotcha_path_segment_user_input_url_interpolation.md.
+export function pathSeg(v: number | string): string {
+  return encodeURIComponent(String(v));
+}
+
+// Schema-layer guard for any field that gets interpolated as a bare path
+// segment. Rejects '/' and whitespace (can't smuggle an extra path
+// component or break the URL), and explicitly rejects '', '.', '..' since
+// none of those are caught by the regex alone and pathSeg() does not
+// escape '.'.
+export const PathSegmentSchema = z
+  .string()
+  .regex(/^[^/\s]+$/u, 'Must not contain "/" or whitespace')
+  .refine((v) => v !== '.' && v !== '..', { message: 'Must not be "." or ".."' });
+
 export const PaginationParams = {
   index: intCoerce(z.number().int().min(0)).optional().describe('Start index (0-based)'),
   nValues: intCoerce(z.number().int()).optional().describe('Number of results (-1 for all)'),

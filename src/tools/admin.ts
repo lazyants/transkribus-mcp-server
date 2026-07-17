@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { transkribusRequest } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
-import { IdSchema } from '../schemas/common.js';
+import { IdSchema, PathSegmentSchema, pathSeg } from '../schemas/common.js';
 
 export function registerAdminTools(server: McpServer): void {
   // 1. POST /admin/index/models
@@ -93,14 +93,14 @@ export function registerAdminTools(server: McpServer): void {
       title: 'Get Admin Reports',
       description: 'Retrieve administrative reports by type and time period.',
       inputSchema: z.object({
-        reportType: z.string().describe('Type of report to retrieve'),
-        reportTime: z.string().describe('Time period for the report'),
+        reportType: PathSegmentSchema.describe('Type of report to retrieve'),
+        reportTime: PathSegmentSchema.describe('Time period for the report'),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     handleToolRequest(async (params) => {
       const { reportType, reportTime } = params;
-      return transkribusRequest('GET', `/admin/reports/${reportType}/${reportTime}`);
+      return transkribusRequest('GET', `/admin/reports/${pathSeg(reportType)}/${pathSeg(reportTime)}`);
     })
   );
 
@@ -111,14 +111,14 @@ export function registerAdminTools(server: McpServer): void {
       title: 'Authorize Users for Job',
       description: 'Authorize specific users to run a job implementation.',
       inputSchema: z.object({
-        jobImpl: z.string().describe('Job implementation identifier'),
+        jobImpl: PathSegmentSchema.describe('Job implementation identifier'),
         userIds: z.array(z.number().int().positive()).describe('List of user IDs to authorize'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     handleToolRequest(async (params) => {
       const { jobImpl, userIds } = params;
-      return transkribusRequest('POST', `/admin/user/auth/${jobImpl}`, { userIds });
+      return transkribusRequest('POST', `/admin/user/auth/${pathSeg(jobImpl)}`, { userIds });
     })
   );
 
@@ -129,13 +129,13 @@ export function registerAdminTools(server: McpServer): void {
       title: 'Get Job Authorized Users',
       description: 'List users authorized to run a specific job implementation.',
       inputSchema: z.object({
-        jobImpl: z.string().describe('Job implementation identifier'),
+        jobImpl: PathSegmentSchema.describe('Job implementation identifier'),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     handleToolRequest(async (params) => {
       const { jobImpl } = params;
-      return transkribusRequest('GET', `/admin/user/auth/${jobImpl}/list`);
+      return transkribusRequest('GET', `/admin/user/auth/${pathSeg(jobImpl)}/list`);
     })
   );
 }

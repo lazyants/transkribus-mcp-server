@@ -8,6 +8,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - npm package: [`@lazyants/transkribus-mcp-server`](https://www.npmjs.com/package/@lazyants/transkribus-mcp-server)
 - MCP Registry: [`io.github.lazyants/transkribus`](https://registry.modelcontextprotocol.io/v0/servers?search=io.github.lazyants/transkribus)
 
+## [3.0.0] — 2026-07-17
+
+### Removed
+
+- **BREAKING:** Remove the `transkribus_auth_login` tool (#29). It was
+  non-functional: `transkribusRequest` runs `ensureSession()` first (which
+  already requires credentials), the tool sent `user`/`pw`/`otp` as URL query
+  parameters instead of a form body (leaking them into access logs and never
+  reaching the JAX-RS `@FormParam` endpoint), and it discarded the session it
+  received. Authenticate via the `TRANSKRIBUS_USER` + `TRANSKRIBUS_PASSWORD`
+  environment variables, or set `TRANSKRIBUS_SESSION_ID` directly. Tool count
+  drops from 301 to 300.
+
+### Security
+
+- Redact secrets from `AxiosError` request/response **bodies** (#26). On a
+  failed request the sanitizer now deletes `config.data` (the request body,
+  which for a failed login carried the plaintext password) on every request,
+  and value-redacts any session token it discovers in the response — across
+  `response.data`, every `response.headers` value, `response.statusText`, and
+  the error's own `message`/`stack`. Discovering the token from the response
+  (rather than matching a known value) catches a freshly minted session that no
+  prior value could predict. The wrapped error message is capped at 512
+  characters so an unbounded error body can no longer become the message
+  verbatim.
+- Scrub `config.params` and any `config.url` query string from chained
+  `AxiosError`s (#32). Complements the body scrub so user-supplied filters and
+  search terms cannot leak through a serialized error regardless of channel.
+- Add `pathSeg()` (percent-encoding) plus a `PathSegmentSchema` two-layer guard
+  and apply both to every user-supplied string interpolated into a URL path —
+  the `reportType`/`reportTime`/`jobImpl` admin segments and the model `type`
+  segment across 14 model tools (#32). `encodeURIComponent` alone does not stop
+  `..` traversal (it never escapes `.`, and the templates supply their own
+  slashes), so the schema layer rejects `''`/`.`/`..`/`/`/whitespace before a
+  URL is ever built.
+
+### Fixed
+
+- Stop the 401 re-authentication interceptor from recursing without bound when
+  `/auth/login` itself responds 401 (#30). `login()` now posts through a
+  dedicated axios instance that carries only the bounded 429 retry and no 401
+  re-auth branch, so a 401 from the login endpoint can no longer re-enter the
+  re-auth handler. A rate-limit exhaustion error now chains its cause instead
+  of discarding the diagnostic.
+
 ## [2.1.2] — 2026-06-22
 
 ### Security
