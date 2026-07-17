@@ -530,6 +530,42 @@ describe('secret redaction — request bodies, query strings, session echoes (#2
     expect((wrapped as { cause?: unknown }).cause).toBeDefined();
   });
 
+  it('redacts in ONE linear pass — no marker re-scan amplification when discovered secrets overlap the "[REDACTED]" marker text (regression — allocation blowup)', () => {
+    // Reviewer's exact repro: 8 single-char session-shaped fields collecting
+    // the literal characters that spell "[REDACTED]" (A, [, R, E, D, C, T,
+    // ]), plus a 1000-char field. A sequential per-secret split/join loop
+    // re-scans the WHOLE string on every pass — INCLUDING the "[REDACTED]"
+    // markers earlier passes just inserted. Since the marker text itself
+    // contains every one of these single-char secrets as a substring, each
+    // remaining pass re-redacts the markers its own prior passes inserted,
+    // multiplicatively ballooning the string (verified: the 1000-char field
+    // amplified to ~2.6M chars, allocating ~166MiB for that one field).
+    const data = [
+      { sessionId: 'A' },
+      { sessionId: '[' },
+      { sessionId: 'R' },
+      { sessionId: 'E' },
+      { sessionId: 'D' },
+      { sessionId: 'C' },
+      { sessionId: 'T' },
+      { sessionId: ']' },
+      { sessionId: 'A'.repeat(1000) },
+    ];
+    const fake = new AxiosError('Request failed with status code 500', 'ERR_BAD_RESPONSE');
+    (fake as unknown as { response: unknown }).response = {
+      status: 500,
+      statusText: 'Internal Server Error',
+      data,
+      headers: new AxiosHeaders(),
+    };
+    const wrapped = wrapAxiosError(fake) as Error;
+    const inspected = util.inspect(wrapped, { depth: null });
+    // Bounded: nowhere near the millions-of-chars blowup the sequential
+    // approach produced — a generous multiple of the input is still tight
+    // enough to catch the regression.
+    expect(inspected.length).toBeLessThan(20_000);
+  });
+
   it('collects EVERY JSESSIONID in a single Cookie header string, not just the first (regression — cookie extraction stopped at the first match)', () => {
     // Cookie: header can legally carry multiple cookies in one string.
     // COOKIE_SESSION_RE previously used .match() (first match only), so

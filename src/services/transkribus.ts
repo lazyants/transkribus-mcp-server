@@ -481,17 +481,37 @@ function collectSessionValues(root: unknown, out: Set<string>): boolean {
   return true;
 }
 
-// Secrets MUST be pre-sorted longest-first (see redactSessionTokens): a
-// shorter collected value (e.g. a truncated inline match) can otherwise
-// pre-empt and fragment a longer one that contains it as a prefix, leaving
-// the longer value's suffix exposed after the shorter replacement already
-// consumed part of the text.
+// Escapes a string for literal use inside a RegExp pattern (the standard
+// idiom: escape every regex metacharacter with a backslash).
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Secrets MUST be pre-sorted longest-first (see redactSessionTokens): regex
+// alternation matches the FIRST alternative that succeeds at a given
+// position (not POSIX leftmost-longest), so ordering longest-first means a
+// longer secret always wins over a shorter one that happens to be its
+// prefix — preserving the same prefix-shadowing guarantee a naive
+// longest-first loop would have, but without looping.
+//
+// Redacts every secret in ONE linear pass via a single combined regex,
+// rather than looping `.split(secret).join(...)` per secret. The sequential
+// approach re-scans the ENTIRE string on each pass — INCLUDING the
+// `[REDACTED]` markers earlier passes just inserted. If a discovered
+// "secret" happens to be a substring of the marker text itself (e.g. an
+// adversarial body with single-char session-shaped fields collecting `R`,
+// `E`, `D`, `A`, `C`, `T`, `[`, `]`), each subsequent pass re-redacts the
+// markers its OWN prior passes inserted, multiplicatively ballooning the
+// string (verified: a 1000-char string amplified to ~2.6M chars under the
+// sequential approach — ~166MiB for one field at the 64KiB body scan cap).
+// A single combined regex never re-scans its own output — no re-scan, no
+// amplification. The alternatives are escaped LITERAL strings (no
+// quantifiers/repetition), so matching is linear — no ReDoS.
 function redactValue(input: string, secretsLongestFirst: readonly string[]): string {
-  let result = input;
-  for (const secret of secretsLongestFirst) {
-    if (secret) result = result.split(secret).join('[REDACTED]');
-  }
-  return result;
+  const nonEmpty = secretsLongestFirst.filter((s) => s.length > 0);
+  if (nonEmpty.length === 0) return input;
+  const combined = new RegExp(nonEmpty.map(escapeRegExp).join('|'), 'g');
+  return input.replace(combined, '[REDACTED]');
 }
 
 // Iterative, cycle-safe, node-budget-bounded twin of collectSessionValues:
