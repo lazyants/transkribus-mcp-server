@@ -50,8 +50,9 @@ const PINS = {
   // Host confusion via backslash authority delimiter / failed IDN canonicalization.
   // The floor stays inside ajv's declared ^3.0.1.
   'fast-uri': pin('^3.1.5'),
-  // ReDoS.
-  'brace-expansion': pin('^5.0.6'),
+  // ReDoS. Dev-only reach (eslint -> minimatch), so the --omit=dev CI gate never
+  // sees it; pinned here anyway because PINS asserts a PATCHED floor.
+  'brace-expansion': pin('^5.0.9'),
   // A patch bump inside the 1.x line clears it — no major bump against the SDK's
   // declared range.
   '@hono/node-server': pin('^1.19.15'),
