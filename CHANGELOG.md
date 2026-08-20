@@ -8,6 +8,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - npm package: [`@lazyants/transkribus-mcp-server`](https://www.npmjs.com/package/@lazyants/transkribus-mcp-server)
 - MCP Registry: [`io.github.lazyants/transkribus`](https://registry.modelcontextprotocol.io/v0/servers?search=io.github.lazyants/transkribus)
 
+## [3.0.1] — 2026-08-20
+
+Maintenance release. No API, tool, or behaviour change — the tool surface is
+identical to 3.0.0.
+
+### Security
+
+- Clear rotted dependency **override pins** (#43, #46). The required CI gate
+  `npm audit --audit-level=moderate --omit=dev` had gone red on `main` with 6
+  vulnerabilities (3 high) without any repository change: two pins were correct
+  when written and rotted in place as later advisories extended their ranges.
+  Because branch protection is `strict`, this blocked the entire merge queue.
+  - `fast-uri` `^3.1.2` → `^3.1.5` — advisory extended to 3.0.0–3.1.4 (host
+    confusion via backslash authority delimiter / failed IDN canonicalization).
+    Stays inside ajv's declared `^3.0.1`.
+  - `hono` `^4.12.25` → `^4.12.34` — advisory extended to `<=4.12.33`.
+  - `brace-expansion` `^5.0.6` → `^5.0.9` — advisory extended to 3.0.0–5.0.8.
+  - `@hono/node-server` — **new** pin `^1.19.15`. The advisory is `<1.19.15`, so
+    a patch bump inside the 1.x line clears it; no major-version move against
+    the SDK's declared range is needed.
+  - `ip-address` — **new** pin `^10.3.1` (advisory `<=10.3.0`: leading-zero
+    octet and CIDR-suffix misparsing enabling SSRF / trust-boundary bypass),
+    reached via `@modelcontextprotocol/sdk` → `express-rate-limit`.
+  - `body-parser` — **new** pin `^2.3.0` (advisory 2.0.0–2.2.2).
+  - `axios` needed no range change: the declared `^1.16.1` already permitted
+    1.19.0, so the lockfile alone cleared GHSA-42h9-826w-cgv3 and nine siblings.
+
+### Changed
+
+- Bump `@modelcontextprotocol/sdk` 1.29.0 → 1.30.0, plus dev tooling —
+  `vitest` 4.1.8 → 4.1.10, `eslint` 10.5.0 → 10.8.1, `typescript-eslint`
+  8.61.0 → 8.67.0, `globals` 17.6.0 → 17.11.0 (#47).
+- CI: `actions/setup-node` 6 → 7 (#42), `actions/checkout` 6 → 7 (#24).
+
+### Tests
+
+- `src/tests/overrides.test.ts` guarded only 3 of the 5 declared overrides, so
+  deleting the `fast-uri` or `brace-expansion` line passed until the next
+  lockfile regeneration — which is how the rot went unnoticed. `PINS` now covers
+  all 8 pins, and a new assertion requires `PINS` and the `package.json`
+  `overrides` block to have identical key sets, so an override added without a
+  pin fails the suite instead of going silently unguarded. Each pin's rationale
+  now sits on its own line rather than in a comment block that restated (and
+  would rot alongside) every advisory range.
+
 ## [3.0.0] — 2026-07-17
 
 ### Removed
@@ -210,6 +255,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release under MIT (`io.github.lazyants/transkribus` MCP Registry
   descriptor only; npm package version was `1.0.0`).
 
+[3.0.1]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v3.0.1
+[3.0.0]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v3.0.0
 [2.1.2]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v2.1.2
 [2.1.1]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v2.1.1
 [2.1.0]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v2.1.0
