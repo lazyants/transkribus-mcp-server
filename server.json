@@ -1,22 +1,24 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.lazyants/transkribus",
-  "description": "MCP server for the Transkribus REST API — collections, documents, HTR/OCR, and models.",
+  "description": "MCP server for the Transkribus REST API \u2014 collections, documents, HTR/OCR, and models.",
   "repository": {
     "url": "https://github.com/lazyants/transkribus-mcp-server",
     "source": "github"
   },
-  "version": "3.0.1",
+  "version": "3.1.0",
   "icon": {
     "src": "https://raw.githubusercontent.com/lazyants/transkribus-mcp-server/main/logo.png",
     "mimeType": "image/png",
-    "sizes": ["400x400"]
+    "sizes": [
+      "400x400"
+    ]
   },
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@lazyants/transkribus-mcp-server",
-      "version": "3.0.1",
+      "version": "3.1.0",
       "transport": {
         "type": "stdio"
       }
