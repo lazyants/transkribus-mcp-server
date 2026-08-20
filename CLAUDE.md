@@ -29,11 +29,13 @@ write and review code here without another file. It is deliberately NOT the whol
 - **`@types/node` is capped at the `engines.node` floor** (Node 20). Reject Dependabot major bumps.
 - **Git**: commit right after a change, present-tense imperative subject, never `git add -A`/`.`,
   no `Co-Authored-By` or "Generated with" trailers. Default branch `main`.
-- **This file does not restate structure that lives in code.** No inventories, no counts, no
-  duplicated tables — a copy of a fact rots the moment the code moves, and nothing here is checked
-  by any test. Where you need a structural fact, read the file that owns it (named below in each
-  case) or run the one-liner. If you find a bare count or a duplicated table here, it is a bug:
-  delete it and point at the source.
+- **This file does not restate CURRENT STRUCTURE that lives in code** — module inventories, tool or
+  file counts, entry/split tables. A copy of such a fact rots the moment the code moves and no test
+  checks it, so read the file that owns it (named below in each case) instead. Finding one here is
+  a bug: delete it and point at the source.
+  **Exempt, and deliberately kept:** fixed conventions that are limits rather than measurements
+  (the 1–2 sentence description cap), dependency and runtime versions, and dated historical notes
+  about past releases — those record what happened, which cannot go stale.
 
 ## Repository specifics
 
@@ -44,11 +46,21 @@ write and review code here without another file. It is deliberately NOT the whol
   count for the main entry and for each split; read it for the current numbers and update it in the
   same commit as any tool change.
 
-- **Architecture decisions** (see auto-memory):
-  - `intCoerce` schema preprocessor — accept string-encoded numeric IDs from MCP clients.
-  - `handleToolRequest` / `formatResponse` contract — JSON + `structuredContent`, array-wrap gotcha.
-  - PyLaia training body — JAXB ParameterMap wire format; UI-default params required for usable models.
-  - Transkribus `trainList` shape — `{train:[{docId,pageList:{pages:[...]}}]}`, NOT flat.
+- **Architecture decisions**, each with its source in this repo — no external reference needed:
+  - **`intCoerce` preprocessor** (`src/schemas/common.ts`) — accepts string-encoded numeric IDs from
+    MCP clients. It is paired with `clearOptinMarker()` in the same file: zod 4 tags `z.preprocess`
+    output as `optin: "optional"`, which silently drops the field from the `tools/list` `required[]`
+    array. Never add a preprocessor without clearing that marker.
+  - **`formatResponse()` / `handleToolRequest()`** (`src/helpers.ts`) — returns JSON text plus
+    `structuredContent`. **Array gotcha:** `structuredContent` must be a Record, not an array; an
+    array passes `typeof === 'object'` and produces an invalid result. The guard is in
+    `src/helpers.ts` at the `structuredContent` assignment — read it before changing the shape.
+  - **PyLaia training body** (`src/tests/pylaia.test.ts`) — the wire format is a JAXB
+    `ParameterMap`, `{ entry: [{ key, value }] }`, not a plain object, and the UI-default parameters
+    are required for a usable model. The test encodes both; treat it as the spec.
+  - **`trainList` shape** — `{ train: [{ docId, pageList: { pages: [...] } }] }`, NOT flat. Also
+    covered in `src/tests/pylaia.test.ts`.
+
 - **Hygiene baseline** (since PR #2, merged 2026-05-07): aligned with lexware/hetzner — FSL-1.1-MIT,
   ESLint 10 + `preserve-caught-error`, Vitest 4 dist-exclude, TS6 + `types: ["node"]`, Trusted
   Publishing, Node 20+22 CI matrix, `npm@^11` pin in the release job. Source helpers added in the
