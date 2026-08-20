@@ -19,29 +19,19 @@ function core(version: string): number[] | null {
   return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
 }
 
-// Patched floors that clear the audited GHSAs. `min` is derived from `range` so
-// the two can never drift — bumping the override range automatically raises the
+// Patched floors that clear the audited advisories. `min` is derived from `range`
+// so the two can never drift — bumping the override range automatically raises the
 // lockfile floor this test enforces.
 //
-//   qs                ^6.15.2   — GHSA-q8mj-m7cp-5q26 (qs.stringify DoS)
-//   hono              ^4.12.34  — advisory range extended to <=4.12.33 (JSX cross-request
-//                                 disclosure, cx() XSS, CORS/Language ReDoS, proxy headers)
-//   form-data         ^4.0.6    — GHSA-hmw2-7cc7-3qxx (CRLF injection via unescaped
-//                                 multipart field/file names)
-//   fast-uri          ^3.1.5    — advisory range extended to 3.0.0–3.1.4 (host confusion via
-//                                 backslash authority delimiter / failed IDN canonicalization).
-//                                 Stays inside ajv's declared ^3.0.1.
-//   brace-expansion   ^5.0.6    — ReDoS
-//   @hono/node-server ^1.19.15  — advisory is <1.19.15, so a PATCH bump inside the 1.x line
-//                                 clears it; no major bump against the SDK's declared range.
-//   ip-address        ^10.3.1   — advisory <=10.3.0 (leading-zero octet and CIDR-suffix
-//                                 misparsing enabling SSRF / trust-boundary bypass)
-//   body-parser       ^2.3.0    — advisory 2.0.0–2.2.2; no 2.2.3 exists, 2.3.0 is the first clean
+// Raising a floor touches exactly two places: the `overrides` block in package.json
+// and the PINS table below; the tests assert those two agree. Advisory ranges are
+// deliberately NOT restated here — they extend over time, and a third copy would
+// rot with nothing to catch it. `npm audit` is the live source for them.
 //
-// Production reachability: `qs` arrives via @modelcontextprotocol/sdk → express →
-// body-parser → qs, so `npm audit --omit=dev` cannot exclude it; `form-data` via
-// axios; `fast-uri` via the SDK's ajv; `hono` / `@hono/node-server` via the SDK's
-// HTTP transport; `ip-address` via the SDK → express-rate-limit.
+// Production reachability, i.e. why `npm audit --omit=dev` cannot exclude these:
+// `qs` arrives via @modelcontextprotocol/sdk → express → body-parser → qs;
+// `form-data` via axios; `fast-uri` via the SDK's ajv; `hono` / `@hono/node-server`
+// via the SDK's HTTP transport; `ip-address` via the SDK → express-rate-limit.
 function pin(range: string): { range: string; min: number[] } {
   // Strip only a leading caret/tilde operator, then parse the strict core.
   const m = /^[\^~]?(.+)$/.exec(range);
@@ -51,15 +41,27 @@ function pin(range: string): { range: string; min: number[] } {
 }
 
 const PINS = {
+  // qs.stringify DoS (GHSA-q8mj-m7cp-5q26).
   qs: pin('^6.15.2'),
+  // JSX cross-request disclosure, cx() XSS, CORS/Language ReDoS, proxy headers.
   hono: pin('^4.12.34'),
+  // CRLF injection via unescaped multipart field/file names (GHSA-hmw2-7cc7-3qxx).
   'form-data': pin('^4.0.6'),
+  // Host confusion via backslash authority delimiter / failed IDN canonicalization.
+  // The floor stays inside ajv's declared ^3.0.1.
   'fast-uri': pin('^3.1.5'),
+  // ReDoS.
   'brace-expansion': pin('^5.0.6'),
+  // A patch bump inside the 1.x line clears it — no major bump against the SDK's
+  // declared range.
   '@hono/node-server': pin('^1.19.15'),
+  // Leading-zero octet and CIDR-suffix misparsing enabling SSRF / trust-boundary bypass.
   'ip-address': pin('^10.3.1'),
+  // First clean release in the 2.x line; no patch release exists below it.
   'body-parser': pin('^2.3.0'),
 } as const;
+
+const PIN_NAMES = Object.keys(PINS) as Array<keyof typeof PINS>;
 
 function gte(version: string, min: readonly number[]): boolean {
   const v = core(version);
@@ -97,7 +99,7 @@ describe('security overrides (audit-gate regression catcher)', () => {
   // Layer (b): the override DECLARATION must exist and be pinned to the stated
   // range. A lockfile-only check would still pass after someone deletes or
   // loosens the overrides block (until the lock is regenerated).
-  it.each(Object.keys(PINS) as Array<keyof typeof PINS>)(
+  it.each(PIN_NAMES)(
     'declares the pinned %s override in package.json',
     (name) => {
       expect(pkg.overrides[name]).toBe(PINS[name].range);
@@ -106,7 +108,7 @@ describe('security overrides (audit-gate regression catcher)', () => {
 
   // Layer (c): every resolved entry in the committed lockfile must satisfy the
   // patched floor — independent of (and stricter than) the network npm audit gate.
-  it.each(Object.keys(PINS) as Array<keyof typeof PINS>)(
+  it.each(PIN_NAMES)(
     'resolves every %s entry at or above the patched floor',
     (name) => {
       const versions = resolvedVersions(name);
