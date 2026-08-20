@@ -22,12 +22,26 @@ function core(version: string): number[] | null {
 // Patched floors that clear the audited GHSAs. `min` is derived from `range` so
 // the two can never drift — bumping the override range automatically raises the
 // lockfile floor this test enforces.
-//   qs        ^6.15.2 — GHSA-q8mj-m7cp-5q26 (qs.stringify DoS)
-//   hono      ^4.12.25 — GHSA-xrhx-7g5j-rcj5 / 3hrh-pfw6-9m5x / f577-qrjj-4474 / 2gcr-mfcq-wcc3 + serve-static path traversal et al.
-//   form-data ^4.0.6  — GHSA-hmw2-7cc7-3qxx (CRLF injection via unescaped multipart field/file names)
-// `qs` reaches the production tree via @modelcontextprotocol/sdk → express →
-// body-parser → qs, so `npm audit --omit=dev` cannot exclude it. `form-data`
-// reaches it via axios.
+//
+//   qs                ^6.15.2   — GHSA-q8mj-m7cp-5q26 (qs.stringify DoS)
+//   hono              ^4.12.34  — advisory range extended to <=4.12.33 (JSX cross-request
+//                                 disclosure, cx() XSS, CORS/Language ReDoS, proxy headers)
+//   form-data         ^4.0.6    — GHSA-hmw2-7cc7-3qxx (CRLF injection via unescaped
+//                                 multipart field/file names)
+//   fast-uri          ^3.1.5    — advisory range extended to 3.0.0–3.1.4 (host confusion via
+//                                 backslash authority delimiter / failed IDN canonicalization).
+//                                 Stays inside ajv's declared ^3.0.1.
+//   brace-expansion   ^5.0.6    — ReDoS
+//   @hono/node-server ^1.19.15  — advisory is <1.19.15, so a PATCH bump inside the 1.x line
+//                                 clears it; no major bump against the SDK's declared range.
+//   ip-address        ^10.3.1   — advisory <=10.3.0 (leading-zero octet and CIDR-suffix
+//                                 misparsing enabling SSRF / trust-boundary bypass)
+//   body-parser       ^2.3.0    — advisory 2.0.0–2.2.2; no 2.2.3 exists, 2.3.0 is the first clean
+//
+// Production reachability: `qs` arrives via @modelcontextprotocol/sdk → express →
+// body-parser → qs, so `npm audit --omit=dev` cannot exclude it; `form-data` via
+// axios; `fast-uri` via the SDK's ajv; `hono` / `@hono/node-server` via the SDK's
+// HTTP transport; `ip-address` via the SDK → express-rate-limit.
 function pin(range: string): { range: string; min: number[] } {
   // Strip only a leading caret/tilde operator, then parse the strict core.
   const m = /^[\^~]?(.+)$/.exec(range);
@@ -38,8 +52,13 @@ function pin(range: string): { range: string; min: number[] } {
 
 const PINS = {
   qs: pin('^6.15.2'),
-  hono: pin('^4.12.25'),
+  hono: pin('^4.12.34'),
   'form-data': pin('^4.0.6'),
+  'fast-uri': pin('^3.1.5'),
+  'brace-expansion': pin('^5.0.6'),
+  '@hono/node-server': pin('^1.19.15'),
+  'ip-address': pin('^10.3.1'),
+  'body-parser': pin('^2.3.0'),
 } as const;
 
 function gte(version: string, min: readonly number[]): boolean {
@@ -66,18 +85,26 @@ function resolvedVersions(name: string): string[] {
   return versions;
 }
 
-describe('security overrides — qs, hono & form-data (audit-gate regression catcher)', () => {
-  // Layer (a): the override DECLARATION must exist and be pinned. A lockfile-only
-  // check would still pass after someone deletes the overrides block (until the
-  // lock is regenerated), so assert the declaration itself.
-  it('declares pinned qs, hono & form-data overrides in package.json', () => {
+describe('security overrides (audit-gate regression catcher)', () => {
+  // Layer (a): PINS must cover EXACTLY the declared overrides. Without this the
+  // table silently under-covers — an override added to package.json with no pin()
+  // entry is unguarded, and deleting it passes until the next lockfile regen.
+  it('pins every declared override, and declares every pin', () => {
     expect(pkg.overrides).toBeDefined();
-    expect(pkg.overrides.qs).toBe(PINS.qs.range);
-    expect(pkg.overrides.hono).toBe(PINS.hono.range);
-    expect(pkg.overrides['form-data']).toBe(PINS['form-data'].range);
+    expect(Object.keys(pkg.overrides).sort()).toEqual(Object.keys(PINS).sort());
   });
 
-  // Layer (b): every resolved entry in the committed lockfile must satisfy the
+  // Layer (b): the override DECLARATION must exist and be pinned to the stated
+  // range. A lockfile-only check would still pass after someone deletes or
+  // loosens the overrides block (until the lock is regenerated).
+  it.each(Object.keys(PINS) as Array<keyof typeof PINS>)(
+    'declares the pinned %s override in package.json',
+    (name) => {
+      expect(pkg.overrides[name]).toBe(PINS[name].range);
+    },
+  );
+
+  // Layer (c): every resolved entry in the committed lockfile must satisfy the
   // patched floor — independent of (and stricter than) the network npm audit gate.
   it.each(Object.keys(PINS) as Array<keyof typeof PINS>)(
     'resolves every %s entry at or above the patched floor',
