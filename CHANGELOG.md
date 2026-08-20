@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.0] — 2026-08-20
+
 ### Added
 
 - The publish workflow fails before `npm publish` when the GitHub Release tag
@@ -285,6 +287,7 @@ identical to 3.0.0.
 - Initial release under MIT (`io.github.lazyants/transkribus` MCP Registry
   descriptor only; npm package version was `1.0.0`).
 
+[3.1.0]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v3.1.0
 [3.0.1]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v3.0.1
 [3.0.0]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v3.0.0
 [2.1.2]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v2.1.2
