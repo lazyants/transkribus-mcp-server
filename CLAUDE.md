@@ -29,21 +29,21 @@ write and review code here without another file. It is deliberately NOT the whol
 - **`@types/node` is capped at the `engines.node` floor** (Node 20). Reject Dependabot major bumps.
 - **Git**: commit right after a change, present-tense imperative subject, never `git add -A`/`.`,
   no `Co-Authored-By` or "Generated with" trailers. Default branch `main`.
-- **Do not add a structural count to this file that no test enforces.** `src/tests/smoke.test.ts`
-  pins the tool-registration counts and nothing else — not module counts, not file counts, not
-  dependency versions. Every other number rots silently, so this file names the command that
-  produces the figure instead of the figure. If you find a bare count here, it is a bug: replace it
-  with its command or delete it.
+- **This file does not restate structure that lives in code.** No inventories, no counts, no
+  duplicated tables — a copy of a fact rots the moment the code moves, and nothing here is checked
+  by any test. Where you need a structural fact, read the file that owns it (named below in each
+  case) or run the one-liner. If you find a bare count or a duplicated table here, it is a bug:
+  delete it and point at the source.
 
 ## Repository specifics
 
 - **API**: Transkribus REST (handwriting OCR/HTR).
 - **Tool naming**: `transkribus_<action>_<resource>`.
-- **Layout**: 1 main + 7 split entry points
-  (`entry-{admin,collections,jobs,models,search,transcription,users}.ts`) + the tool modules under
-  `src/tools/`, all of which `src/index.ts` imports (`ls src/tools/*.ts | wc -l` for the count —
-  it was 32 on 2026-08-20 and no test pins it). `smoke.test.ts` DOES pin the tool total at 300 on
-  the main entry, plus each split's sub-count.
+- **Layout**: `src/index.ts` plus `src/entry-*.ts` split entries, with the tool modules in
+  `src/tools/` — all of them imported by `src/index.ts`. `src/tests/smoke.test.ts` asserts the tool
+  count for the main entry and for each split; read it for the current numbers and update it in the
+  same commit as any tool change.
+
 - **Architecture decisions** (see auto-memory):
   - `intCoerce` schema preprocessor — accept string-encoded numeric IDs from MCP clients.
   - `handleToolRequest` / `formatResponse` contract — JSON + `structuredContent`, array-wrap gotcha.
