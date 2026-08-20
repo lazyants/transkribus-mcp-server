@@ -1,10 +1,16 @@
 # transkribus-mcp-server
 
-Guidance for working in this repository. **Self-contained** — everything needed to work here safely
-is below. If you are in the `lazy-ants/development/mcp/` fleet checkout, the fleet-root `CLAUDE.md`
-one directory up carries the same cross-cutting rules plus fleet-only material (the publishing
-playbook, the hygiene skill, the sibling servers). A standalone clone of this repo does not have it
-and does not need it.
+Guidance for working in this repository. It carries the **coding and convention** rules — enough to
+write and review code here without another file. It is deliberately NOT the whole story:
+
+- **Validation and CI** are defined by `.github/workflows/test.yml` (the required sequence: `npm ci`,
+  lint, `node scripts/check-versions.mjs`, `npm audit --audit-level=moderate --omit=dev`, build,
+  tests, on the Node 20 + 22 matrix). Read that file — it is versioned here and is the source of
+  truth, not a summary of it.
+- **Releasing** is in `README.md` § Releasing, including the guarded tagging sequence.
+- **Fleet-wide material** — the publishing playbook, the hygiene skill, the sibling servers — is in
+  the fleet-root `CLAUDE.md` of the `lazy-ants/development/mcp/` checkout. A standalone clone does
+  not have it; everything needed to work in *this* repo is here or in the two files named above.
 
 ## Cross-cutting rules (all three lazy-ants MCP servers)
 
@@ -23,16 +29,21 @@ and does not need it.
 - **`@types/node` is capped at the `engines.node` floor** (Node 20). Reject Dependabot major bumps.
 - **Git**: commit right after a change, present-tense imperative subject, never `git add -A`/`.`,
   no `Co-Authored-By` or "Generated with" trailers. Default branch `main`.
-- **Counts in this file are pinned by `src/tests/smoke.test.ts`.** It is the source of truth — if a
-  number here and a number there disagree, the test wins and this file is stale.
+- **Do not add a structural count to this file that no test enforces.** `src/tests/smoke.test.ts`
+  pins the tool-registration counts and nothing else — not module counts, not file counts, not
+  dependency versions. Every other number rots silently, so this file names the command that
+  produces the figure instead of the figure. If you find a bare count here, it is a bug: replace it
+  with its command or delete it.
 
 ## Repository specifics
 
 - **API**: Transkribus REST (handwriting OCR/HTR).
 - **Tool naming**: `transkribus_<action>_<resource>`.
 - **Layout**: 1 main + 7 split entry points
-  (`entry-{admin,collections,jobs,models,search,transcription,users}.ts`) + 32 tool modules under
-  `src/tools/`, all 32 imported by `src/index.ts`. `smoke.test.ts` pins 300 tools on the main entry.
+  (`entry-{admin,collections,jobs,models,search,transcription,users}.ts`) + the tool modules under
+  `src/tools/`, all of which `src/index.ts` imports (`ls src/tools/*.ts | wc -l` for the count —
+  it was 32 on 2026-08-20 and no test pins it). `smoke.test.ts` DOES pin the tool total at 300 on
+  the main entry, plus each split's sub-count.
 - **Architecture decisions** (see auto-memory):
   - `intCoerce` schema preprocessor — accept string-encoded numeric IDs from MCP clients.
   - `handleToolRequest` / `formatResponse` contract — JSON + `structuredContent`, array-wrap gotcha.
