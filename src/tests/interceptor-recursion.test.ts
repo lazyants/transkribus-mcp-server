@@ -219,4 +219,43 @@ describe('interceptor recursion (#30) — real adapter, genuine interceptor pipe
     // Adopted directly — no account login was attempted, and none was possible.
     expect(loginHits).toBe(0);
   });
+
+  it('Test E — a password rotated mid-run is used by the request that meets the 401', async () => {
+    process.env.TRANSKRIBUS_USER = 'test-user';
+    process.env.TRANSKRIBUS_PASSWORD = 'old-password';
+
+    let sessionValid = true;
+    const submittedPasswords: string[] = [];
+    setAdapter(async (config) => {
+      const url = config.url as string;
+      if (url === '/auth/login') {
+        const body = new URLSearchParams(String(config.data ?? ''));
+        submittedPasswords.push(String(body.get('pw')));
+        if (body.get('pw') !== 'new-password') throw make401(config);
+        return { status: 200, statusText: 'OK', headers: {}, config, data: { sessionId: 'post-rotation-session' } };
+      }
+      const cookie = String((config.headers as Record<string, unknown> | undefined)?.Cookie ?? '');
+      if (cookie.includes('post-rotation-session')) {
+        return { status: 200, statusText: 'OK', headers: {}, config, data: { ok: true } };
+      }
+      if (sessionValid) return { status: 200, statusText: 'OK', headers: {}, config, data: { ok: true } };
+      throw make401(config);
+    });
+
+    const { transkribusRequest } = await import('../services/transkribus.js');
+
+    // First request succeeds on the configured session — and caches a credential
+    // snapshot holding the password as it is right now.
+    expect(await transkribusRequest('GET', '/collections')).toEqual({ ok: true });
+
+    // The account password is rotated while the server keeps running, and the
+    // session it started with expires.
+    process.env.TRANSKRIBUS_PASSWORD = 'new-password';
+    sessionValid = false;
+
+    // The request that MEETS the expired session must recover, not merely warm
+    // the cache for the next one: re-auth re-reads the sources before logging in.
+    expect(await transkribusRequest('GET', '/collections')).toEqual({ ok: true });
+    expect(submittedPasswords).toEqual(['new-password']);
+  });
 });

@@ -168,15 +168,27 @@ function invalidateCredentials(): void {
   credentialsPromise = null;
 }
 
-async function login(): Promise<string> {
+/**
+ * Obtain a session id by logging in. `refresh` is set by the 401 re-auth path:
+ * whatever is cached was resolved before the session died, so a password rotated
+ * since then would be submitted stale — the request that MET the expired session
+ * would fail and only the next one would recover. Re-reading first lets the
+ * triggering request recover transparently. The cold-start path leaves it unset:
+ * the snapshot is being taken for the first time either way.
+ */
+async function login({ refresh = false }: { refresh?: boolean } = {}): Promise<string> {
+  if (refresh) invalidateCredentials();
+
   let creds = await getCredentials();
   if (!creds.user || !creds.password) {
     // A snapshot taken when only a session id was configured has no login pair,
     // and that session has now expired. Re-read both sources before giving up,
     // so credentials provided after startup are picked up rather than needing a
-    // restart.
-    invalidateCredentials();
-    creds = await getCredentials();
+    // restart. (Already done above when `refresh` is set.)
+    if (!refresh) {
+      invalidateCredentials();
+      creds = await getCredentials();
+    }
 
     // What was provided may be a REPLACEMENT SESSION rather than a login pair:
     // a session-id-only setup rotates the entry (or the env var) and expects the
@@ -381,7 +393,7 @@ function createClient(): AxiosInstance {
       (config as unknown as Record<string, unknown>).__authRetried = true;
 
       try {
-        sessionId = await login();
+        sessionId = await login({ refresh: true });
         console.error('[transkribus-mcp] Re-authenticated after 401');
         return client.request(config);
       } catch (loginErr) {
