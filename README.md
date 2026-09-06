@@ -4,7 +4,7 @@
 
 MCP server for the [Transkribus REST API](https://transkribus.eu/). Manage collections, documents, HTR/OCR recognition, models, and more through the Model Context Protocol.
 
-**300 tools** across 22 resource domains, with 8 entry points so you can pick the right server for your MCP client's tool limit.
+**297 tools** across 22 resource domains, with 8 entry points so you can pick the right server for your MCP client's tool limit.
 
 > **API scope:** This server covers the **legacy Transkribus TrpServer REST API**. The newer **Processing API v2** (OIDC auth, `/processing/v2`, `account.readcoop.eu`) is intentionally out of scope.
 
@@ -45,8 +45,8 @@ Use this if you already have a valid session from the Transkribus platform.
 
 | Command | Domains | Tools |
 |---|---|---|
-| `transkribus-mcp-server` | All 22 domains | 300 |
-| `transkribus-mcp-collections` | Auth, Collections (core/docs/pages/users/crowd/editdecl/credits/stats/labels/activity/tags) | 132 |
+| `transkribus-mcp-server` | All 22 domains | 297 |
+| `transkribus-mcp-collections` | Auth, Collections (core/docs/pages/users/crowd/editdecl/credits/stats/labels/activity/tags) | 129 |
 | `transkribus-mcp-admin` | Auth, Admin, Credits, Uploads, Labels, Files, System, Root | 62 |
 | `transkribus-mcp-transcription` | Auth, Recognition, Layout Analysis, PyLaia, P2PaLA, DU | 47 |
 | `transkribus-mcp-users` | Auth, Users, Crowdsourcing, eLearning | 29 |
@@ -55,6 +55,22 @@ Use this if you already have a valid session from the Transkribus platform.
 | `transkribus-mcp-search` | Auth, Search, KWS | 16 |
 
 Use split servers to reduce context size — pick only the splits you need.
+
+## Uploading a document
+
+To ingest a document, use this three-step flow:
+
+1. `transkribus_upload_create_structure` — give it `collId`, a `title`, and a `pages` array of
+   `{ fileName, pageNr }` (one entry per page image you are about to send). Returns an upload with
+   an `uploadId`.
+2. `transkribus_upload_page` — call once per page with the `uploadId` and `imagePath` (a path to a
+   local image file), optionally `pageXmlPath` for an existing PAGE XML transcript.
+3. `transkribus_upload_get_status` — poll with the `uploadId` until the document appears in the
+   collection.
+
+These upload tools ship in the full `transkribus-mcp-server` and in the `transkribus-mcp-admin`
+split — not in `transkribus-mcp-collections`. PDF ingestion is not supported; convert the PDF to
+page images first and use the flow above.
 
 ## Claude Code
 

@@ -60,6 +60,14 @@ write and review code here without another file. It is deliberately NOT the whol
     are required for a usable model. The test encodes both; treat it as the spec.
   - **`trainList` shape** — `{ train: [{ docId, pageList: { pages: [...] } }] }`, NOT flat. Also
     covered in `src/tests/pylaia.test.ts`.
+  - **Ingestion wire contracts** (`src/tests/ingestion.test.ts`) — `POST /uploads` takes `collId` as
+    a **query** param, never in the body; the body is either a `documentUploadDescriptor` JSON
+    (`{ md, pageList: { pages: [...] } }` — `pageList` is a wrapper object, not a flat array) or a
+    METS XML document sent with `Content-Type: application/xml`. `PUT /uploads/{uploadId}` is
+    `multipart/form-data` with parts named exactly `img` (required) and `xml` (optional).
+    `createDocFromIiifUrl` / `createDocFromMetsUrl` / `ingest` read `fileName` from the **query
+    string** and ignore any body; `createDocFromMets` is multipart with a part named `mets`. The
+    bulk metadata endpoints take `text/csv` and `text/csv+isad` bodies, not JSON.
 
 - **Hygiene baseline** (since PR #2, merged 2026-05-07): aligned with lexware/hetzner — FSL-1.1-MIT,
   ESLint 10 + `preserve-caught-error`, Vitest 4 dist-exclude, TS6 + `types: ["node"]`, Trusted
