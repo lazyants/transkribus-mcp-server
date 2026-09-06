@@ -21,7 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unchanged. The keyring is optional in every sense: `@napi-rs/keyring` is an
   `optionalDependency` loaded lazily, and an absent, locked or slow store
   degrades to the environment — bounded at 5 seconds, because a hung credential
-  store would otherwise stall the MCP stdio handshake. README and SECURITY.md
+  store would otherwise stall the MCP stdio handshake. Credentials added,
+  corrected or rotated while the server runs are picked up: re-authentication
+  after a 401 re-reads both sources rather than reusing the snapshot the
+  process started with. README and SECURITY.md
   document the setup commands and the resolution order. Ported from
   lexware-mcp-server 4.2.0 (#44).
 
