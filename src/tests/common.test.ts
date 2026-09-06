@@ -383,10 +383,10 @@ describe('pagination factories — coercion WITHOUT losing the advertised defaul
 
   // REGRESSION GUARD for the zod 4 emit trap documented at the factories:
   // JSON Schema emit in INPUT mode renders a z.preprocess pipe from its input
-  // leg and drops a `default` attached to any outer wrapper. The factories work
-  // around it by putting the default in .meta() on the INNER number schema. If a
-  // zod upgrade changes that, 34 advertised defaults vanish from tools/list with
-  // no other symptom — this test is the only thing that would notice.
+  // leg and drops a `default` attached to any outer wrapper, which is why the
+  // factories use .prefault(). If a zod upgrade changes that, 34 advertised
+  // defaults vanish from tools/list with no other symptom — this test is the
+  // only thing that would notice.
   it('advertises the default in the INPUT-mode JSON Schema tools/list emits', () => {
     const schema = z.toJSONSchema(
       z.object({ index: paginationIndex(0), nValues: paginationNValues(-1) }),

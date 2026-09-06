@@ -3,7 +3,7 @@ import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { z } from 'zod';
+import { z } from 'zod';
 
 import { registerActionTools } from '../tools/actions.js';
 import { registerAdminTools } from '../tools/admin.js';
@@ -93,29 +93,59 @@ function registerEveryTool(): RegisteredTools {
   return (server as unknown as { _registeredTools: RegisteredTools })._registeredTools;
 }
 
+interface JsonSchemaProperty {
+  type?: string;
+  minimum?: number;
+  maximum?: number;
+  exclusiveMinimum?: number;
+  exclusiveMaximum?: number;
+}
+
 interface NumericField {
   tool: string;
   param: string;
-  optional: boolean;
+  required: boolean;
+  probe: number;
+  accepts: boolean;
   coerces: boolean;
 }
 
-// Every top-level param of every tool that accepts the NUMBER 3, tagged with
-// whether it also accepts the STRING "3". Fields that reject 3 outright
-// (strings, booleans, arrays, objects) are not in scope and are skipped.
+// Picks a value the field's own bounds allow, preferring a small one. Probing
+// with a fixed literal would silently SKIP any param whose constraints exclude
+// it (`z.number().int().min(4)` rejects 3), and a skipped param produces exactly
+// what a clean one produces — so the bounds have to drive the probe.
+function probeValue(prop: JsonSchemaProperty): number {
+  const low = prop.exclusiveMinimum !== undefined ? prop.exclusiveMinimum + 1 : prop.minimum;
+  const high = prop.exclusiveMaximum !== undefined ? prop.exclusiveMaximum - 1 : prop.maximum;
+  let value = 3;
+  if (low !== undefined && value < low) value = low;
+  if (high !== undefined && value > high) value = high;
+  return value;
+}
+
+// Numeric params are identified from the JSON Schema MCP actually publishes, not
+// from what a probe happens to be accepted by, so nothing drops out of the scan
+// unnoticed. `required` comes from the same emitted schema.
 function numericFields(tools: RegisteredTools): NumericField[] {
   const fields: NumericField[] = [];
   for (const [tool, def] of Object.entries(tools)) {
-    const shape = def.inputSchema?.shape;
-    if (!shape) continue;
-    for (const [param, schema] of Object.entries(shape)) {
-      const field = schema as z.ZodType;
-      if (!field.safeParse(3).success) continue;
+    if (!def.inputSchema) continue;
+    const emitted = z.toJSONSchema(def.inputSchema, { io: 'input' }) as {
+      properties?: Record<string, JsonSchemaProperty>;
+      required?: string[];
+    };
+    const required = new Set(emitted.required ?? []);
+    for (const [param, prop] of Object.entries(emitted.properties ?? {})) {
+      if (prop.type !== 'integer' && prop.type !== 'number') continue;
+      const field = (def.inputSchema.shape as Record<string, z.ZodType>)[param];
+      const probe = probeValue(prop);
       fields.push({
         tool,
         param,
-        optional: field.safeParse(undefined).success,
-        coerces: field.safeParse('3').success,
+        required: required.has(param),
+        probe,
+        accepts: field.safeParse(probe).success,
+        coerces: field.safeParse(String(probe)).success,
       });
     }
   }
@@ -134,13 +164,17 @@ describe('string-encoded numbers are accepted wherever a number is (issue #33)',
     const toolsDir = resolve(dirname(fileURLToPath(import.meta.url)), '../tools');
     const modules = readdirSync(toolsDir).filter((f) => f.endsWith('.ts'));
     // A new tool module that nobody adds to REGISTRARS would never be scanned
-    // by the two assertions below, and its raw params would pass unnoticed.
+    // by the assertions below, and its raw params would pass unnoticed.
     expect(modules.length).toBe(REGISTRARS.length);
     expect(Object.keys(tools).length).toBeGreaterThan(250);
   });
 
-  it('scanned a plausible number of numeric params', () => {
-    expect(fields.filter((f) => !f.optional).length).toBeGreaterThan(300);
+  it('exercised every numeric param it found', () => {
+    // If a param's declared bounds cannot produce a value the schema accepts,
+    // the coercion answer below is meaningless for it — fail rather than skip.
+    const unexercised = fields.filter((f) => !f.accepts).map((f) => `${f.tool}.${f.param} (probe ${f.probe})`);
+    expect(unexercised, `probe value rejected by its own schema: ${unexercised.join(', ')}`).toEqual([]);
+    expect(fields.filter((f) => f.required).length).toBeGreaterThan(300);
     expect(fields.filter(isPagination).length).toBeGreaterThan(100);
   });
 
@@ -148,7 +182,7 @@ describe('string-encoded numbers are accepted wherever a number is (issue #33)',
     // A required param that rejects "3" makes its tool uncallable from a
     // string-serializing client — there is no way to omit it.
     const offenders = fields
-      .filter((f) => !f.optional && !f.coerces)
+      .filter((f) => f.required && !f.coerces)
       .map((f) => `${f.tool}.${f.param}`);
     expect(
       offenders,

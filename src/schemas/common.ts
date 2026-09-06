@@ -83,27 +83,20 @@ export const PaginationParams = {
 
 // Pagination fields for the tools that ship a wire default for index/nValues.
 //
-// The default value has to be declared TWICE and that is not redundancy: zod 4
-// builds `intCoerce` as a z.preprocess pipe, and JSON Schema emit in INPUT mode
-// — the mode MCP `tools/list` uses — renders such a pipe from its input leg and
-// drops any `default` attached to an outer wrapper. Measured on zod 4.4.3:
-// `intCoerce(...).optional().default(0)` advertises no default at all, in every
-// ordering of .describe()/.default()/.meta(); only `.meta()` on the INNER number
-// schema survives the emit. So `.meta({ default })` supplies the ADVERTISED
-// default and `.default()` supplies the RUNTIME one. Dropping either silently
-// changes what clients see or what gets sent upstream — the same class of quiet
-// tools/list degradation as the `optin` marker cleared above.
+// `.prefault()`, not `.default()`: zod 4 builds `intCoerce` as a z.preprocess
+// pipe, and JSON Schema emit in INPUT mode — the mode MCP `tools/list` uses —
+// renders such a pipe from its input leg and drops a `default` attached to any
+// outer wrapper. Measured on zod 4.4.3: `intCoerce(...).optional().default(0)`
+// advertises no default at all. `.prefault()` substitutes the value on the input
+// side, so it survives the emit and the field still stays out of `required[]`.
+// Getting this wrong removes 34 advertised defaults from tools/list with no
+// other symptom — the same class of quiet degradation as the `optin` marker
+// cleared above, and guarded by a test in src/tests/common.test.ts.
 export const paginationIndex = (defaultValue: number) =>
-  intCoerce(z.number().int().min(0).meta({ default: defaultValue }))
-    .optional()
-    .default(defaultValue)
-    .describe('Start index (0-based)');
+  intCoerce(z.number().int().min(0)).prefault(defaultValue).describe('Start index (0-based)');
 
 export const paginationNValues = (defaultValue: number) =>
-  intCoerce(z.number().int().meta({ default: defaultValue }))
-    .optional()
-    .default(defaultValue)
-    .describe('Number of results (-1 for all)');
+  intCoerce(z.number().int()).prefault(defaultValue).describe('Number of results (-1 for all)');
 
 export const paginationWithDefaults = (defaults: { index: number; nValues: number }) => ({
   index: paginationIndex(defaults.index),
