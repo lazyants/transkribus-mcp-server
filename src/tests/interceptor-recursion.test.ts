@@ -258,4 +258,41 @@ describe('interceptor recursion (#30) — real adapter, genuine interceptor pipe
     expect(await transkribusRequest('GET', '/collections')).toEqual({ ok: true });
     expect(submittedPasswords).toEqual(['new-password']);
   });
+
+  it('Test F — concurrent 401s after a session rotation all adopt the new session', async () => {
+    // Both requests carry the same dead session. The first re-auth replaces the
+    // module-global session id while the second is still resolving, so a second
+    // caller comparing against that global would mistake the freshly adopted
+    // session for the one that just failed and reject a request that should
+    // have succeeded.
+    delete process.env.TRANSKRIBUS_USER;
+    delete process.env.TRANSKRIBUS_PASSWORD;
+
+    let loginHits = 0;
+    setAdapter(async (config) => {
+      const url = config.url as string;
+      if (url === '/auth/login') {
+        loginHits++;
+        return { status: 200, statusText: 'OK', headers: {}, config, data: { sessionId: 'from-login' } };
+      }
+      const cookie = String((config.headers as Record<string, unknown> | undefined)?.Cookie ?? '');
+      if (!cookie.includes('rotated-session-id')) throw make401(config);
+      return { status: 200, statusText: 'OK', headers: {}, config, data: { ok: true } };
+    });
+
+    const { transkribusRequest } = await import('../services/transkribus.js');
+
+    // Prime the module with the configured (now dead) session.
+    expect(await transkribusRequest('GET', '/collections').catch((e: unknown) => e)).toBeInstanceOf(
+      Error
+    );
+    process.env.TRANSKRIBUS_SESSION_ID = 'rotated-session-id';
+
+    const results = await Promise.allSettled([
+      transkribusRequest('GET', '/collections'),
+      transkribusRequest('GET', '/collections'),
+    ]);
+    expect(results.map((r) => r.status)).toEqual(['fulfilled', 'fulfilled']);
+    expect(loginHits).toBe(0);
+  });
 });

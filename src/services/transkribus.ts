@@ -175,8 +175,17 @@ function invalidateCredentials(): void {
  * would fail and only the next one would recover. Re-reading first lets the
  * triggering request recover transparently. The cold-start path leaves it unset:
  * the snapshot is being taken for the first time either way.
+ *
+ * `expiredSessionId` is the session THIS caller's request actually carried. It
+ * is not the same thing as the module-global `sessionId`, which another caller's
+ * re-auth can replace while this one is awaiting — comparing against the global
+ * would make the second of two concurrent 401s see the freshly adopted session
+ * as "the one that just failed" and refuse it.
  */
-async function login({ refresh = false }: { refresh?: boolean } = {}): Promise<string> {
+async function login({
+  refresh = false,
+  expiredSessionId = null,
+}: { refresh?: boolean; expiredSessionId?: string | null } = {}): Promise<string> {
   if (refresh) invalidateCredentials();
 
   let creds = await getCredentials();
@@ -193,10 +202,11 @@ async function login({ refresh = false }: { refresh?: boolean } = {}): Promise<s
     // What was provided may be a REPLACEMENT SESSION rather than a login pair:
     // a session-id-only setup rotates the entry (or the env var) and expects the
     // running server to use it. Adopt it, and skip the account login this
-    // function exists for. The identity check matters — re-adopting the very
-    // session that just produced the 401 would hand the caller a credential
-    // already known to be dead.
-    if (creds.sessionId && creds.sessionId !== sessionId) return creds.sessionId;
+    // function exists for. The comparison is against the session that produced
+    // THIS 401 — re-adopting that one would hand the caller a credential already
+    // known to be dead — and deliberately not against the module-global one; see
+    // the note on expiredSessionId above.
+    if (creds.sessionId && creds.sessionId !== expiredSessionId) return creds.sessionId;
   }
   if (!creds.user || !creds.password) {
     throw new Error(
@@ -252,6 +262,17 @@ async function login({ refresh = false }: { refresh?: boolean } = {}): Promise<s
   if (response.data?.sessionId) return response.data.sessionId;
 
   throw new Error('Login succeeded but no JSESSIONID found in response');
+}
+
+/** The JSESSIONID the given request was sent with, or null if it carried none.
+ *  Cookie-attribute parsing stops at the first `;`, as in login(). */
+function sessionFromRequestConfig(config: { headers?: unknown }): string | null {
+  const headers = config.headers;
+  if (!headers || typeof headers !== 'object') return null;
+  const cookie = (headers as Record<string, unknown>).Cookie ?? (headers as Record<string, unknown>).cookie;
+  if (typeof cookie !== 'string') return null;
+  const match = /JSESSIONID=([^;]+)/i.exec(cookie);
+  return match ? match[1] : null;
 }
 
 function baseClientConfig(): Record<string, unknown> {
@@ -392,8 +413,14 @@ function createClient(): AxiosInstance {
       if (retried) return Promise.reject(error);
       (config as unknown as Record<string, unknown>).__authRetried = true;
 
+      // The session THIS request carried, read off its own headers rather than
+      // from the module global, which a concurrent re-auth may already have
+      // replaced. Falling back to the global covers a request that carried no
+      // cookie at all.
+      const expiredSessionId = sessionFromRequestConfig(config) ?? sessionId;
+
       try {
-        sessionId = await login({ refresh: true });
+        sessionId = await login({ refresh: true, expiredSessionId });
         console.error('[transkribus-mcp] Re-authenticated after 401');
         return client.request(config);
       } catch (loginErr) {
