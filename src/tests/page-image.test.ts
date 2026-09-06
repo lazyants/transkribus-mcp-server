@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import axios from 'axios';
+import axios, { AxiosError, AxiosHeaders } from 'axios';
 import { assertTranskribusImageUrl, fetchImageBytes } from '../services/transkribus.js';
 import {
   DEFAULT_IMAGE_MAX_BYTES,
@@ -97,6 +97,35 @@ describe('fetchImageBytes wiring', () => {
     });
     try {
       await expect(fetchImageBytes(new URL('https://files.transkribus.eu/a'), 100)).rejects.toThrow(/Expected an image/);
+    } finally {
+      (axios as unknown as { get: unknown }).get = original;
+    }
+  });
+
+  it('routes a failed download through the redaction layer, not out raw', async () => {
+    // This is the one network call in the module that could bypass
+    // wrapAxiosError. It sends no session cookie, so nothing is known to leak
+    // today — but an unsanitized AxiosError reaching a caller that inspects it
+    // deeply is exactly the class that layer exists to close.
+    const original = axios.get;
+    (axios as unknown as { get: unknown }).get = async () => {
+      const err = new AxiosError('Request failed with status code 404', 'ERR_BAD_REQUEST');
+      err.response = {
+        status: 404,
+        statusText: 'Not Found',
+        data: { message: 'no such image' },
+        headers: new AxiosHeaders(),
+        config: { headers: new AxiosHeaders() },
+      } as never;
+      throw err;
+    };
+    try {
+      const thrown = await fetchImageBytes(new URL('https://files.transkribus.eu/a'), 100)
+        .then(() => null, (e: unknown) => e);
+      expect(thrown).toBeInstanceOf(Error);
+      expect(thrown).not.toBeInstanceOf(AxiosError);
+      // wrapAxiosError's shape — proves the sanitizing path ran.
+      expect((thrown as Error).message).toContain('Transkribus API error 404');
     } finally {
       (axios as unknown as { get: unknown }).get = original;
     }

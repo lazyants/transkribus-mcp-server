@@ -920,19 +920,29 @@ export async function fetchImageBytes(
   url: URL,
   maxBytes: number
 ): Promise<{ data: Buffer; mimeType: string }> {
-  const response = await axios.get<ArrayBuffer>(url.toString(), {
-    responseType: 'arraybuffer',
-    timeout: REQUEST_TIMEOUT,
-    // Enforced by axios while the response accumulates, so an oversized image
-    // is aborted rather than fully buffered. maxBodyLength is deliberately not
-    // set: it caps REQUEST bodies, and this is a GET.
-    maxContentLength: maxBytes,
-    maxRedirects: 5,
-    beforeRedirect: (options) => {
-      assertTranskribusImageUrl(options.href);
-    },
-    headers: { Accept: 'image/*' },
-  });
+  let response;
+  try {
+    response = await axios.get<ArrayBuffer>(url.toString(), {
+      responseType: 'arraybuffer',
+      timeout: REQUEST_TIMEOUT,
+      // Enforced by axios while the response accumulates, so an oversized image
+      // is aborted rather than fully buffered. maxBodyLength is deliberately not
+      // set: it caps REQUEST bodies, and this is a GET.
+      maxContentLength: maxBytes,
+      maxRedirects: 5,
+      beforeRedirect: (options) => {
+        assertTranskribusImageUrl(options.href);
+      },
+      headers: { Accept: 'image/*' },
+    });
+  } catch (err) {
+    // Same treatment as every other request in this module. This instance sends
+    // no session cookie, so nothing is known to leak today — but an unsanitized
+    // AxiosError reaching a caller that inspects it deeply is exactly the class
+    // the redaction layer above exists to close, and this would otherwise be the
+    // one call site not covered by it.
+    throw wrapAxiosError(err);
+  }
 
   const contentType = String(response.headers['content-type'] ?? '');
   const mimeType = contentType.split(';')[0].trim().toLowerCase();
