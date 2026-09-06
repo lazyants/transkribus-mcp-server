@@ -40,6 +40,18 @@ vi.mock('axios', async (importOriginal) => {
   };
 });
 
+// The service module reads the OS keyring before the environment. Stub the
+// native module so these env-driven tests never touch a real credential store —
+// a developer with entries stored under the default service name would
+// otherwise see them override the env vars set below.
+vi.mock('@napi-rs/keyring', () => ({
+  AsyncEntry: class {
+    getPassword(): Promise<string | undefined> {
+      return Promise.resolve(undefined);
+    }
+  },
+}));
+
 // GOTCHA: an adapter that RESOLVES a response with status 401 never enters
 // axios's onRejected chain — settling status/rejection is the adapter's own
 // job. Reject with a genuine AxiosError carrying `.config` (so the

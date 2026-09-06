@@ -5,23 +5,174 @@ let sessionId: string | null = null;
 let clientInstance: AxiosInstance | null = null;
 let loginClientInstance: AxiosInstance | null = null;
 
-function getCredentials(): { user: string; password: string } | null {
-  const user = process.env.TRANSKRIBUS_USER;
-  const password = process.env.TRANSKRIBUS_PASSWORD;
-  if (user && password) return { user, password };
-  return null;
+// Credentials are read from the OS keyring first and fall back to the
+// environment, so an MCP client config file need not carry a long-lived
+// Transkribus account password in clear text. One entry per value under a
+// shared service name: `user`, `password` and `session-id`. The service name is
+// configurable so several server instances can point at different accounts.
+const KEYRING_SERVICE_DEFAULT = 'transkribus-mcp';
+const KEYRING_ACCOUNT_USER = 'user';
+const KEYRING_ACCOUNT_PASSWORD = 'password';
+const KEYRING_ACCOUNT_SESSION = 'session-id';
+
+// A locked or unresponsive credential store must not stall the MCP stdio
+// handshake — that is the worst failure shape here, because the client sees
+// only a server that never answers. Two independent bounds are used, and the
+// second one is the one that actually holds: napi-rs can only cancel work that
+// has NOT started, so an AbortSignal does not interrupt a native read already
+// waiting on a locked keychain. The signal is still passed (it stops queued
+// work early), but each read is also raced against this deadline, after which
+// that value is treated as absent and the environment fallback applies.
+const KEYRING_TIMEOUT_MS = 5_000;
+
+export interface ResolvedCredentials {
+  sessionId: string | null;
+  user: string | null;
+  password: string | null;
 }
 
-function getSessionFromEnv(): string | null {
-  return process.env.TRANSKRIBUS_SESSION_ID || null;
+interface CredentialSources {
+  keyring: { user?: string | null; password?: string | null; sessionId?: string | null };
+  env: { user?: string | null; password?: string | null; sessionId?: string | null };
+}
+
+/**
+ * Pure credential-source selection: per value, the keyring wins and the
+ * environment is the fallback (mixing sources is allowed — e.g. the user name
+ * in the config, the password in the keyring). Throws a clear, secret-free
+ * error when neither a session id nor a complete user+password pair is
+ * available. Kept pure (no keyring/env IO) so every branch is unit-testable
+ * without the native module; the impure reads live in resolveCredentials().
+ */
+export function selectCredentials({ keyring, env }: CredentialSources): ResolvedCredentials {
+  const pick = (fromKeyring?: string | null, fromEnv?: string | null): string | null =>
+    fromKeyring || fromEnv || null;
+
+  const resolved: ResolvedCredentials = {
+    sessionId: pick(keyring.sessionId, env.sessionId),
+    user: pick(keyring.user, env.user),
+    password: pick(keyring.password, env.password),
+  };
+
+  if (resolved.sessionId) return resolved;
+  if (resolved.user && resolved.password) return resolved;
+
+  // Never interpolate the runtime TRANSKRIBUS_KEYRING_SERVICE value into this
+  // message: a user who mis-set it to their password would otherwise see the
+  // secret echoed back. Name the env var and show only the default constant.
+  throw new Error(
+    [
+      'No Transkribus credentials found. Provide them via one of:',
+      `  • OS keyring: service "${KEYRING_SERVICE_DEFAULT}" (override with TRANSKRIBUS_KEYRING_SERVICE), ` +
+        `accounts "${KEYRING_ACCOUNT_USER}" + "${KEYRING_ACCOUNT_PASSWORD}", or "${KEYRING_ACCOUNT_SESSION}"`,
+      '  • Environment variables: TRANSKRIBUS_USER + TRANSKRIBUS_PASSWORD, or TRANSKRIBUS_SESSION_ID',
+    ].join('\n')
+  );
+}
+
+type AsyncEntryConstructor = typeof import('@napi-rs/keyring').AsyncEntry;
+
+const NO_KEYRING_VALUES = { user: null, password: null, sessionId: null } as const;
+
+/** Resolve `work` normally, or `null` once `ms` has elapsed — the bound that
+ *  actually holds when a native keyring read ignores its abort signal. The
+ *  timer is unref'd so a pending deadline never keeps the process alive. */
+async function withDeadline(work: Promise<string | null>, ms: number): Promise<string | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), ms);
+    timer.unref?.();
+  });
+  try {
+    return await Promise.race([work, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Read one keyring entry, resolving to null on ANY failure: no such entry, a
+ *  store that cannot be read, or a read that outlives KEYRING_TIMEOUT_MS. Each
+ *  entry is isolated, so a missing password cannot discard a present user. */
+function readKeyringEntry(
+  AsyncEntry: AsyncEntryConstructor,
+  service: string,
+  account: string,
+  signal: AbortSignal
+): Promise<string | null> {
+  const read = (async () => {
+    try {
+      return (await new AsyncEntry(service, account).getPassword(signal)) ?? null;
+    } catch {
+      return null;
+    }
+  })();
+  return withDeadline(read, KEYRING_TIMEOUT_MS);
+}
+
+/** Read all three entries in parallel. AsyncEntry, not the sync Entry: the sync
+ *  API blocks the event loop. An unavailable keyring — headless Linux without
+ *  libsecret, an unsupported platform, `npm install --omit=optional` — throws on
+ *  import and degrades to the environment, which is why the module is an
+ *  optionalDependency loaded lazily rather than a hard import. */
+async function readKeyring(service: string): Promise<ResolvedCredentials> {
+  let AsyncEntry: AsyncEntryConstructor;
+  try {
+    ({ AsyncEntry } = await import('@napi-rs/keyring'));
+  } catch {
+    return { ...NO_KEYRING_VALUES };
+  }
+
+  const signal = AbortSignal.timeout(KEYRING_TIMEOUT_MS);
+  const [user, password, keyringSessionId] = await Promise.all([
+    readKeyringEntry(AsyncEntry, service, KEYRING_ACCOUNT_USER, signal),
+    readKeyringEntry(AsyncEntry, service, KEYRING_ACCOUNT_PASSWORD, signal),
+    readKeyringEntry(AsyncEntry, service, KEYRING_ACCOUNT_SESSION, signal),
+  ]);
+  return { user, password, sessionId: keyringSessionId };
+}
+
+/** Impure counterpart of selectCredentials: reads the keyring and the
+ *  environment, then delegates the choice. Exported for tests. */
+export async function resolveCredentials(): Promise<ResolvedCredentials> {
+  const service = process.env.TRANSKRIBUS_KEYRING_SERVICE || KEYRING_SERVICE_DEFAULT;
+  const keyring = await readKeyring(service);
+
+  return selectCredentials({
+    keyring,
+    env: {
+      user: process.env.TRANSKRIBUS_USER,
+      password: process.env.TRANSKRIBUS_PASSWORD,
+      sessionId: process.env.TRANSKRIBUS_SESSION_ID,
+    },
+  });
+}
+
+let credentialsPromise: Promise<ResolvedCredentials> | null = null;
+
+/** Single-flight: concurrent callers (ensureSession on the first requests, and
+ *  login() on a 401 re-auth) share one keyring lookup, but the cached promise is
+ *  cleared on rejection so a transient keyring failure or a credential set after
+ *  startup can be retried without restarting the process. */
+function getCredentials(): Promise<ResolvedCredentials> {
+  if (credentialsPromise) return credentialsPromise;
+  const pending = resolveCredentials().catch((err: unknown) => {
+    if (credentialsPromise === pending) credentialsPromise = null;
+    throw err;
+  });
+  credentialsPromise = pending;
+  return pending;
 }
 
 async function login(): Promise<string> {
-  const creds = getCredentials();
-  if (!creds) {
+  const creds = await getCredentials();
+  if (!creds.user || !creds.password) {
+    // Reachable when only a session id was configured and it has expired: the
+    // 401 handler needs a user and password to mint a new session.
     throw new Error(
-      'TRANSKRIBUS_USER and TRANSKRIBUS_PASSWORD environment variables are required, ' +
-      'or set TRANSKRIBUS_SESSION_ID directly.'
+      'Transkribus login requires a user name and password. Provide them via the OS keyring ' +
+      `(service "${KEYRING_SERVICE_DEFAULT}", override with TRANSKRIBUS_KEYRING_SERVICE; accounts ` +
+      `"${KEYRING_ACCOUNT_USER}" and "${KEYRING_ACCOUNT_PASSWORD}") or the TRANSKRIBUS_USER and ` +
+      'TRANSKRIBUS_PASSWORD environment variables.'
     );
   }
 
@@ -247,11 +398,13 @@ function getLoginClient(): AxiosInstance {
 }
 
 async function ensureSession(): Promise<void> {
+  // Live session first: the 401 handler mints a fresh one, and re-reading the
+  // configured (by then stale) session id here would overwrite it.
   if (sessionId) return;
 
-  const envSession = getSessionFromEnv();
-  if (envSession) {
-    sessionId = envSession;
+  const creds = await getCredentials();
+  if (creds.sessionId) {
+    sessionId = creds.sessionId;
     return;
   }
 
