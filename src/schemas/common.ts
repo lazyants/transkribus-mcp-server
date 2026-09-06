@@ -50,6 +50,7 @@ export const PageNrSchema = intCoerce(z.number().int().min(1)).describe('Page nu
 export const ModelIdSchema = intCoerce(z.number().int().positive()).describe('Model/HTR ID');
 export const IdSchema = intCoerce(z.number().int().positive()).describe('Resource ID');
 export const TranscriptIdSchema = intCoerce(z.number().int().positive()).describe('Transcript ID');
+export const UserIdSchema = intCoerce(z.number().int().positive()).describe('User ID');
 
 // Encodes a single path segment for interpolation into a REST URL template
 // (e.g. `/models/${pathSeg(type)}`). encodeURIComponent alone does NOT stop
@@ -79,3 +80,27 @@ export const PaginationParams = {
   sortColumn: z.string().optional().describe('Column to sort by'),
   sortDirection: z.string().optional().describe('Sort direction: asc or desc'),
 };
+
+// Pagination fields for the tools that ship a wire default for index/nValues.
+//
+// `.prefault()`, not `.default()`: zod 4 builds `intCoerce` as a z.preprocess
+// pipe, and JSON Schema emit in INPUT mode — the mode MCP `tools/list` uses —
+// renders such a pipe from its input leg and drops a `default` attached to any
+// outer wrapper. Measured on zod 4.4.3: `intCoerce(...).optional().default(0)`
+// advertises no default at all. `.prefault()` substitutes the value on the input
+// side, so it survives the emit and the field still stays out of `required[]`.
+// Getting this wrong removes 34 advertised defaults from tools/list with no
+// other symptom — the same class of quiet degradation as the `optin` marker
+// cleared above, and guarded by a test in src/tests/common.test.ts.
+export const paginationIndex = (defaultValue: number) =>
+  intCoerce(z.number().int().min(0)).prefault(defaultValue).describe('Start index (0-based)');
+
+export const paginationNValues = (defaultValue: number) =>
+  intCoerce(z.number().int()).prefault(defaultValue).describe('Number of results (-1 for all)');
+
+export const paginationWithDefaults = (defaults: { index: number; nValues: number }) => ({
+  index: paginationIndex(defaults.index),
+  nValues: paginationNValues(defaults.nValues),
+  sortColumn: PaginationParams.sortColumn,
+  sortDirection: PaginationParams.sortDirection,
+});

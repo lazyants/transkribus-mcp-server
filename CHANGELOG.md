@@ -10,6 +10,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Every REQUIRED numeric tool parameter now accepts a string-encoded number, so
+  an MCP client that serializes numbers as JSON strings can call every tool.
+  `intCoerce` was applied to 191 parameters in 2.0.1; a measurement of all
+  registered tools — every parameter that accepts the number 3 but rejects the
+  string `"3"` — found 24 required stragglers it had missed, in nine modules.
+  Each one made its tool uncallable from such a client with no workaround, since
+  a required parameter cannot simply be omitted. The 18 hand-rolled
+  `index`/`nValues` pagination blocks are coerced too, and now come from
+  `src/schemas/common.ts` rather than being copy-pasted. Their existing default
+  values are unchanged: these parameters go straight into the query string, so
+  `nValues=0` and an omitted `nValues` are different requests. Numeric ARRAY
+  parameters are covered too: five required ones (`userIds`, `documentIds` ×2,
+  `pageIds` ×2) accepted `[1, 2]` but rejected `["1", "2"]`, which fails a
+  string-serializing client exactly as a bare number does. (#33)
+- 16 parameters applied a default the server never published in `tools/list`,
+  in `models.ts` and `collections-pages.ts`. Zod 4 renders a `z.preprocess` pipe
+  — which is every `intCoerce` parameter — from its input leg when emitting JSON
+  Schema in INPUT mode, and drops a `default` attached to an outer wrapper, so
+  `intCoerce(...).optional().default(N)` substituted N while telling the client
+  nothing about it. `.prefault(N)` survives the emit; advertised defaults go from
+  16 missing to 0.
+
+### Changed
+
+- `index` now rejects a negative start index across all pagination parameters,
+  and `index`/`nValues`/`sortDirection` descriptions are the same everywhere.
+  Previously the 32 tools using the shared `PaginationParams` and the 18 with
+  hand-rolled copies disagreed on both.
+
+### Added
+
+- `UserIdSchema`, and `paginationIndex`/`paginationNValues`/`paginationWithDefaults`
+  in `src/schemas/common.ts`.
+- `src/tests/schema-coercion.test.ts`, two ratchets over the whole registered tool
+  surface: no required numeric parameter may reject its own string form — bare or
+  inside an array — and every default the server applies must be advertised in
+  `tools/list`. Both scan the live schemas, so a new tool that reintroduces either
+  defect fails CI by name.
+
+### Known limitation
+
+- 137 OPTIONAL numeric parameters still reject string-encoded numbers. An optional
+  filter can be omitted, so the tool stays usable; several are counts, timestamps
+  or floats that need per-parameter judgement rather than a mechanical sweep.
+
 ### Added
 
 - `transkribus_job_wait` — polls a job until it reaches `FINISHED`, `FAILED` or

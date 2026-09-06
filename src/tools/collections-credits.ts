@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { transkribusRequest } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
-import { CollIdSchema, IdSchema } from '../schemas/common.js';
+import { CollIdSchema, IdSchema, paginationWithDefaults } from '../schemas/common.js';
 
 export function registerCollectionCreditTools(server: McpServer): void {
   server.registerTool(
@@ -15,10 +15,7 @@ export function registerCollectionCreditTools(server: McpServer): void {
         minBalance: z.number().optional().describe('Minimum balance filter'),
         includeExpired: z.boolean().optional().default(true).describe('Include expired credits'),
         onlyActive: z.boolean().optional().default(true).describe('Only active credits'),
-        index: z.number().int().optional().default(0).describe('Start index'),
-        nValues: z.number().int().optional().default(0).describe('Number of values'),
-        sortColumn: z.string().optional().describe('Column to sort by'),
-        sortDirection: z.string().optional().describe('Sort direction (asc/desc)'),
+        ...paginationWithDefaults({ index: 0, nValues: 0 }),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -35,10 +32,7 @@ export function registerCollectionCreditTools(server: McpServer): void {
       description: 'Get credit transaction records for a collection.',
       inputSchema: z.object({
         collId: CollIdSchema,
-        index: z.number().int().optional().default(0).describe('Start index'),
-        nValues: z.number().int().optional().default(-1).describe('Number of values'),
-        sortColumn: z.string().optional().describe('Column to sort by'),
-        sortDirection: z.string().optional().describe('Sort direction (asc/desc)'),
+        ...paginationWithDefaults({ index: 0, nValues: -1 }),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -55,10 +49,7 @@ export function registerCollectionCreditTools(server: McpServer): void {
       description: 'Get the credit usage history for a collection.',
       inputSchema: z.object({
         collId: CollIdSchema,
-        index: z.number().int().optional().default(0).describe('Start index'),
-        nValues: z.number().int().optional().default(-1).describe('Number of values'),
-        sortColumn: z.string().optional().describe('Column to sort by'),
-        sortDirection: z.string().optional().describe('Sort direction (asc/desc)'),
+        ...paginationWithDefaults({ index: 0, nValues: -1 }),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },

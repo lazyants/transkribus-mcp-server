@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { transkribusRequest } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
-import { CollIdSchema, ModelIdSchema } from '../schemas/common.js';
+import { CollIdSchema, DocIdSchema, ModelIdSchema } from '../schemas/common.js';
 
 export function registerDuTools(server: McpServer): void {
   // 1. POST /du/{collId}/{modelId}/recognition
@@ -14,7 +14,7 @@ export function registerDuTools(server: McpServer): void {
       inputSchema: z.object({
         collId: CollIdSchema,
         modelId: ModelIdSchema,
-        docId: z.number().int().positive().describe('Document ID'),
+        docId: DocIdSchema,
         pages: z.string().optional().describe('Page range (e.g. "1-5")'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },

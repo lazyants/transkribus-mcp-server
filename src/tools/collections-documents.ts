@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { transkribusRequest } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
-import { CollIdSchema, DocIdSchema, PageNrSchema, PaginationParams, intCoerce } from '../schemas/common.js';
+import { CollIdSchema, DocIdSchema, PageNrSchema, PaginationParams, intCoerce, paginationIndex, paginationNValues, paginationWithDefaults } from '../schemas/common.js';
 
 /** How many pages one transkribus_doc_get_plaintext call will fetch. A clamp, not
  *  an error: the result reports nextStartPage so a long document is read in
@@ -591,10 +591,7 @@ export function registerCollectionDocumentTools(server: McpServer): void {
         modelType: z.string().optional().describe('Filter by model type'),
         labelId: z.string().optional().describe('Filter by label ID'),
         hideOnSites: z.number().int().optional().describe('Filter by hide on sites flag'),
-        index: z.number().int().optional().default(0).describe('Start index'),
-        nValues: z.number().int().optional().default(-1).describe('Number of values (-1 for all)'),
-        sortColumn: z.string().optional().describe('Column to sort by'),
-        sortDirection: z.string().optional().describe('Sort direction (asc/desc)'),
+        ...paginationWithDefaults({ index: 0, nValues: -1 }),
         pagingWrapper: z.boolean().optional().default(false).describe('Use paging wrapper'),
         skipPagesWithMissingStatus: z.boolean().optional().default(false).describe('Skip pages with missing status'),
       }),
@@ -688,8 +685,8 @@ export function registerCollectionDocumentTools(server: McpServer): void {
         collId: CollIdSchema,
         id: DocIdSchema,
         pages: z.string().optional().describe('Page range filter'),
-        index: z.number().int().optional().default(0).describe('Start index'),
-        nValues: z.number().int().optional().default(-1).describe('Number of values'),
+        index: paginationIndex(0),
+        nValues: paginationNValues(-1),
         status: z.string().optional().describe('Filter by transcript status'),
         skipPagesWithMissingStatus: z.boolean().optional().default(false).describe('Skip pages with missing status'),
       }),
@@ -711,7 +708,7 @@ export function registerCollectionDocumentTools(server: McpServer): void {
       inputSchema: z.object({
         collId: CollIdSchema,
         id: DocIdSchema,
-        page: z.number().int().min(1).describe('Page number'),
+        page: PageNrSchema,
         status: z.string().optional().describe('Transcript status'),
         fileName: z.string().optional().describe('File name for transcript sync'),
       }),

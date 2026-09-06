@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { transkribusRequest } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
-import { IdSchema, PaginationParams } from '../schemas/common.js';
+import { IdSchema, PaginationParams, paginationWithDefaults } from '../schemas/common.js';
 
 export function registerCreditTools(server: McpServer): void {
   // 1. GET /credits
@@ -133,10 +133,7 @@ export function registerCreditTools(server: McpServer): void {
       title: 'Get Credit Products',
       description: 'List available credit products for purchase.',
       inputSchema: z.object({
-        index: z.number().int().optional().default(0).describe('Start index'),
-        nValues: z.number().int().optional().default(-1).describe('Number of values'),
-        sortColumn: z.string().optional().describe('Column to sort by'),
-        sortDirection: z.string().optional().describe('Sort direction (asc/desc)'),
+        ...paginationWithDefaults({ index: 0, nValues: -1 }),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },

@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { transkribusRequest } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
-import { CollIdSchema } from '../schemas/common.js';
+import { CollIdSchema, IdSchema } from '../schemas/common.js';
 
 export function registerCollectionEditDeclTools(server: McpServer): void {
   server.registerTool(
@@ -46,7 +46,7 @@ export function registerCollectionEditDeclTools(server: McpServer): void {
       description: 'Store a new option for an editorial declaration feature.',
       inputSchema: z.object({
         collId: CollIdSchema,
-        featId: z.number().int().positive().describe('Feature ID to add the option to'),
+        featId: IdSchema.describe('Feature ID to add the option to'),
         option: z.string().describe('Option value'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
@@ -64,7 +64,7 @@ export function registerCollectionEditDeclTools(server: McpServer): void {
       description: 'Delete an editorial declaration feature from a collection.',
       inputSchema: z.object({
         collId: CollIdSchema,
-        featId: z.number().int().positive().describe('Feature ID to delete'),
+        featId: IdSchema.describe('Feature ID to delete'),
         id: z.number().int().optional().describe('Feature ID (alternative)'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
@@ -82,7 +82,7 @@ export function registerCollectionEditDeclTools(server: McpServer): void {
       description: 'Delete an option from an editorial declaration feature.',
       inputSchema: z.object({
         collId: CollIdSchema,
-        optionId: z.number().int().positive().describe('Option ID to delete'),
+        optionId: IdSchema.describe('Option ID to delete'),
         id: z.number().int().optional().describe('Option ID (alternative)'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
