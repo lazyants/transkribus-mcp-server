@@ -57,6 +57,30 @@ security add-generic-password -s "transkribus-mcp" -a "user" -w
 security add-generic-password -s "transkribus-mcp" -a "password" -w
 ```
 
+> [!NOTE]
+> A login-keychain item belongs to the program that created it. The first time
+> the server reads an item created by `security`, macOS shows a "…wants to use
+> your confidential information stored in transkribus-mcp" dialog — choose
+> **Always Allow** and it will not ask again. Until that is granted the read
+> cannot complete: the server waits 5 seconds, then falls back to the
+> environment variables, so a server started where nobody can answer the dialog
+> behaves as if the keyring were empty rather than hanging.
+>
+> To avoid the dialog entirely, write the entry from the same Node.js runtime
+> that will read it (the value is passed through the environment, never argv):
+>
+> ```bash
+> npm install -g @lazyants/transkribus-mcp-server   # the keyring module ships with it
+> cd "$(npm root -g)/@lazyants/transkribus-mcp-server"
+> read -rs -p "Transkribus password: " TK_SECRET; echo
+> TK_SECRET="$TK_SECRET" node -e 'const { Entry } = require("@napi-rs/keyring"); new Entry("transkribus-mcp", "password").setPassword(process.env.TK_SECRET);'
+> unset TK_SECRET
+> ```
+>
+> Repeat with `"user"` in place of `"password"`. A different Node.js
+> installation later (a `nvm` switch, say) is a different program to the
+> keychain, so the dialog can appear once more for it.
+
 #### Windows (PowerShell)
 
 `cmdkey` can only take the value as a command-line argument, which exposes it in
