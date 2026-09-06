@@ -70,6 +70,23 @@ export async function waitForJob(
   let job: unknown = null;
   let polls = 0;
 
+  // Every exit from the loop below is either terminal-state or deadline, so
+  // timedOut is exactly the complement of terminal — built in one place so the
+  // two returns cannot drift apart.
+  const build = (terminal: boolean): WaitForJobResult => {
+    const state = (job as { state?: unknown } | null)?.state;
+    const downloadUrl = extractDownloadUrl(job);
+    return {
+      job,
+      state: typeof state === 'string' ? state : null,
+      terminal,
+      timedOut: !terminal,
+      polls,
+      waitedSeconds: (deps.now() - start) / 1000,
+      ...(downloadUrl ? { downloadUrl } : {}),
+    };
+  };
+
   for (;;) {
     // Checked BEFORE issuing the request, not only after: a clamped sleep can
     // resolve at the same instant its deadline timer fires, and starting a poll
@@ -81,18 +98,7 @@ export async function waitForJob(
 
     job = outcome;
     polls += 1;
-    const state = (job as { state?: unknown } | null)?.state;
-    if (isTerminalJobState(state)) {
-      return {
-        job,
-        state: typeof state === 'string' ? state : null,
-        terminal: true,
-        timedOut: false,
-        polls,
-        waitedSeconds: (deps.now() - start) / 1000,
-        ...(extractDownloadUrl(job) ? { downloadUrl: extractDownloadUrl(job) } : {}),
-      };
-    }
+    if (isTerminalJobState((job as { state?: unknown } | null)?.state)) return build(true);
 
     const remaining = deadline - deps.now();
     if (remaining <= 0) break;
@@ -102,16 +108,7 @@ export async function waitForJob(
     if (slept === TIMED_OUT) break;
   }
 
-  const state = (job as { state?: unknown } | null)?.state;
-  return {
-    job,
-    state: typeof state === 'string' ? state : null,
-    terminal: false,
-    timedOut: true,
-    polls,
-    waitedSeconds: (deps.now() - start) / 1000,
-    ...(extractDownloadUrl(job) ? { downloadUrl: extractDownloadUrl(job) } : {}),
-  };
+  return build(false);
 }
 
 /** Default race implementation. The timer is unref'd so a losing poll's pending
@@ -289,13 +286,14 @@ export function registerJobTools(server: McpServer): void {
       title: 'Wait for Job',
       description:
         'Poll a job until it reaches FINISHED, FAILED or CANCELED, or until the wait budget runs out. ' +
-        'Defaults: poll every 5s, wait up to 30s; a timed-out result is not an error — call again to keep waiting.',
+        `Defaults: poll every ${JOB_WAIT_DEFAULT_POLL_INTERVAL_SECONDS}s, wait up to ${JOB_WAIT_DEFAULT_MAX_WAIT_SECONDS}s; ` +
+        'a timed-out result is not an error — call again to keep waiting.',
       inputSchema: z.object({
         id: IdSchema,
         pollIntervalSeconds: intCoerce(z.number().int().min(1).max(60)).optional()
-          .describe('Seconds between polls (default 5)'),
+          .describe(`Seconds between polls (default ${JOB_WAIT_DEFAULT_POLL_INTERVAL_SECONDS})`),
         maxWaitSeconds: intCoerce(z.number().int().min(5).max(1800)).optional()
-          .describe('Wall-clock budget in seconds (default 30). Above ~50 needs an MCP client configured with a longer request timeout.'),
+          .describe(`Wall-clock budget in seconds (default ${JOB_WAIT_DEFAULT_MAX_WAIT_SECONDS}). Above ~50 needs an MCP client configured with a longer request timeout.`),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },

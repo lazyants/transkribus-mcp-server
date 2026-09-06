@@ -901,7 +901,7 @@ export function assertTranskribusImageUrl(raw: unknown): URL {
   } catch {
     // The malformed URL is the only detail the parse error carries, and it is
     // already named in this message — nothing to chain.
-    throw new Error(`Page image URL is not a valid URL: ${raw}`);
+    throw new Error(`Page image URL is not a valid URL: ${capMessage(raw)}`);
   }
   if (url.protocol !== 'https:') {
     throw new Error(`Refusing a non-https page image URL: ${url.protocol}//${url.host}`);

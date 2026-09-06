@@ -68,14 +68,14 @@ export function buildPlaintextDocument(
 
   for (const entry of entries) {
     let effective = entry;
-    if (renderPage(entry).length > maxChars) {
-      const size = entry.text?.length ?? 0;
+    let chunk = renderPage(entry);
+    if (chunk.length > maxChars) {
       effective = {
         pageNr: entry.pageNr,
-        error: `page text is ${size} characters, above maxChars ${maxChars} — raise maxChars or read this page with transkribus_page_get_plaintext`,
+        error: `page text is ${entry.text?.length ?? 0} characters, above maxChars ${maxChars} — raise maxChars or read this page with transkribus_page_get_plaintext`,
       };
+      chunk = renderPage(effective);
     }
-    const chunk = renderPage(effective);
     if (length + chunk.length > maxChars) {
       return { text: chunks.join(''), used, nextStartPage: entry.pageNr };
     }
