@@ -39,8 +39,7 @@ import { registerActionTools } from './tools/actions.js';
 //
 // Tradeoff: a split binary now imports every tool module rather than only its own,
 // because the arrays live in one file. Which tools it REGISTERS is unchanged; the
-// extra cost is parsing the other modules at startup, and they only define register
-// functions at module scope.
+// extra cost is parsing the other modules at startup.
 export type ToolRegistrar = (server: McpServer) => void;
 
 export const collectionsEntry: readonly ToolRegistrar[] = [
