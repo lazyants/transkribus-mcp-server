@@ -10,6 +10,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Support for the Transkribus **Metagrapho ("Processing") API** — 4 tools
+  (`transkribus_processing_submit_image`, `_get_status`, `_get_page_xml`,
+  `_get_alto_xml`), a `transkribus-mcp-processing` entry point, and a dedicated
+  client in `src/services/metagrapho.ts`. It authenticates with the READCOOP SSO
+  password grant (client `processing-api-client`) using the existing
+  `TRANSKRIBUS_USER` / `TRANSKRIBUS_PASSWORD`, refreshes the token automatically,
+  and accepts `TRANSKRIBUS_ACCESS_TOKEN` to skip the exchange. Closes #22.
+
+### Fixed
+
+- **Corrected the documented Processing API version.** Earlier releases (see
+  2.1.0 below) recorded the newer API as "Processing API v2" at `/processing/v2`.
+  Verified against the live service: `/processing/v2` returns **404**, while
+  `/processing/v1` answers and its OpenAPI document self-describes as
+  "Transkribus Metagrapho API" 1.13.1. The request shape differs too — the live
+  service requires `config.textRecognition.htrId`, not `config.modelId`.
+
+### Security
+
+- The Metagrapho client never attaches an upstream error as `cause` and never
+  copies a response body into an error message; failures report fixed text plus
+  the numeric HTTP status. The legacy client's sanitizer only discovers
+  `sessionId` / `JSESSIONID`-shaped secrets, so an OIDC password, access token or
+  refresh token **echoed back** in an error body would have survived into the MCP
+  tool result and stderr. Covered by regression tests that check both
+  `util.inspect(err, { depth: null })` and `JSON.stringify` — the former is the
+  one that catches a response-body leak.
+
 ## [3.1.0] — 2026-08-20
 
 ### Added
@@ -169,7 +199,9 @@ identical to 3.0.0.
 - Documented the legacy-only API scope: this server targets the legacy
   Transkribus TrpServer REST API; the newer Processing API v2 (OIDC,
   `/processing/v2`, `account.readcoop.eu`) is intentionally out of
-  scope (PR #17).
+  scope (PR #17). *(Superseded — see [Unreleased]: the live endpoint is
+  `/processing/v1`, `/processing/v2` does not exist, and the API is now
+  supported rather than out of scope.)*
 
 ## [2.0.3] — 2026-06-13
 

@@ -36,10 +36,13 @@ describe('reference resource — module content', () => {
     expect(typeof REFERENCE_MD).toBe('string');
     expect(REFERENCE_MD.length).toBeGreaterThan(0);
     expect(REFERENCE_MD).toContain('# Transkribus MCP');
-    // Known reference token + the W2-B legacy-only scope note.
+    // Known reference token + the two-API scope note. The Processing API is no
+    // longer out of scope (issue #22); the reference now has to name both APIs
+    // and the CORRECT Processing version, since /processing/v2 does not exist.
     expect(REFERENCE_MD).toContain('TrpServer');
-    expect(REFERENCE_MD).toContain('Processing API v2');
-    expect(REFERENCE_MD).toContain('out of scope');
+    expect(REFERENCE_MD).toContain('Metagrapho Processing API');
+    expect(REFERENCE_MD).toContain('/processing/v1');
+    expect(REFERENCE_MD).not.toContain('out of scope');
   });
 
   it('REFERENCE_URI is the stable reference scheme', () => {

@@ -34,3 +34,25 @@ export function handleToolRequest(fn: (params: any) => Promise<unknown>) {
     }
   };
 }
+
+/**
+ * Wrapper for a tool whose upstream response is raw text, not JSON — the
+ * Metagrapho PAGE/ALTO endpoints return `application/xml`. `formatResponse`
+ * would `JSON.stringify` the XML into an escaped quoted blob and, since a
+ * string is not a Record, would set no `structuredContent` either. This emits
+ * the text verbatim.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function handleTextToolRequest(fn: (params: any) => Promise<string>) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return async (params: any) => {
+    try {
+      const text = await fn(params);
+      return { content: [{ type: 'text' as const, text }] };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[transkribus-mcp] Tool error: ${message}`);
+      return toolError(err);
+    }
+  };
+}
