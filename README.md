@@ -45,8 +45,9 @@ Three entries under one service name, `transkribus-mcp` by default:
 
 > [!IMPORTANT]
 > The commands below read the value from an interactive prompt rather than
-> taking it as an argument, so it never lands in your shell history or the
-> process list. Avoid pasting a password directly onto the command line.
+> taking it as an argument, so it never lands in your shell history, in a
+> command line, or in the launch environment of another process. Avoid pasting a
+> password directly onto the command line.
 
 #### macOS
 
@@ -67,13 +68,24 @@ security add-generic-password -s "transkribus-mcp" -a "password" -w
 > behaves as if the keyring were empty rather than hanging.
 >
 > To avoid the dialog entirely, write the entry from the same Node.js runtime
-> that will read it (the value is passed through the environment, never argv):
+> that will read it. The value is piped in on standard input, so it appears
+> neither in a command line nor in a process environment (`ps -E` shows those).
+> The prompt below is plain POSIX, so it behaves the same in `zsh` and `bash`:
 >
 > ```bash
 > npm install -g @lazyants/transkribus-mcp-server   # the keyring module ships with it
 > cd "$(npm root -g)/@lazyants/transkribus-mcp-server"
-> read -rs -p "Transkribus password: " TK_SECRET; echo
-> TK_SECRET="$TK_SECRET" node -e 'const { Entry } = require("@napi-rs/keyring"); new Entry("transkribus-mcp", "password").setPassword(process.env.TK_SECRET);'
+> printf 'Transkribus password: ' >&2; stty -echo; IFS= read -r TK_SECRET; stty echo; printf '\n' >&2
+> printf '%s' "$TK_SECRET" | node -e '
+>   const { Entry } = require("@napi-rs/keyring");
+>   let value = "";
+>   process.stdin.setEncoding("utf8");
+>   process.stdin.on("data", (chunk) => { value += chunk; });
+>   process.stdin.on("end", () => {
+>     new Entry("transkribus-mcp", "password").setPassword(value);
+>     console.log("stored");
+>   });
+> '
 > unset TK_SECRET
 > ```
 >
