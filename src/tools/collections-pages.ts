@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { assertTranskribusImageUrl, fetchImageBytes, transkribusRequest } from '../services/transkribus.js';
 import { handleRawToolRequest, handleToolRequest } from '../helpers.js';
-import { CollIdSchema, DocIdSchema, PageNrSchema, TranscriptIdSchema, intCoerce } from '../schemas/common.js';
+import { CollIdSchema, DocIdSchema, PageNrSchema, TranscriptIdSchema, intCoerce, paginationIndex, paginationNValues } from '../schemas/common.js';
 
 export const DEFAULT_IMAGE_MAX_BYTES = 5_000_000;
 
@@ -221,8 +221,8 @@ export function registerCollectionPageTools(server: McpServer): void {
         collId: CollIdSchema,
         id: DocIdSchema,
         page: PageNrSchema,
-        index: intCoerce(z.number().int()).optional().default(0).describe('Start index'),
-        nValues: intCoerce(z.number().int()).optional().default(-1).describe('Number of values'),
+        index: paginationIndex(0),
+        nValues: paginationNValues(-1),
         sortColumn: z.string().optional().describe('Column to sort by'),
         sortDirection: z.string().optional().describe('Sort direction (asc/desc)'),
       }),
@@ -357,7 +357,7 @@ export function registerCollectionPageTools(server: McpServer): void {
         text: z.string().describe('Plain text content to assign'),
         status: z.string().optional().describe('Transcript status'),
         note: z.string().optional().describe('Note for the transcript'),
-        parent: intCoerce(z.number().int()).optional().default(-1).describe('Parent transcript ID'),
+        parent: intCoerce(z.number().int()).prefault(-1).describe('Parent transcript ID'),
         nrIsPageId: z.boolean().optional().default(false).describe('Treat page nr as page ID'),
         toolName: z.string().optional().describe('Tool name that created the transcript'),
         useExistingLayout: z.boolean().optional().default(false).describe('Use existing layout'),
@@ -402,7 +402,7 @@ export function registerCollectionPageTools(server: McpServer): void {
         body: z.record(z.string(), z.unknown()).optional().describe('Transcript data'),
         status: z.string().optional().describe('Transcript status'),
         note: z.string().optional().describe('Note for the transcript'),
-        parent: intCoerce(z.number().int()).optional().default(-1).describe('Parent transcript ID'),
+        parent: intCoerce(z.number().int()).prefault(-1).describe('Parent transcript ID'),
         nrIsPageId: z.boolean().optional().default(false).describe('Treat page nr as page ID'),
         toolName: z.string().optional().describe('Tool name that created the transcript'),
       }),

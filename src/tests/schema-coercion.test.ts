@@ -38,12 +38,17 @@ import { registerSystemTools } from '../tools/system.js';
 import { registerUploadTools } from '../tools/uploads.js';
 import { registerUserTools } from '../tools/user.js';
 
-// Ratchet for issue #33. MCP clients sometimes serialize numbers as JSON
-// strings; `intCoerce` (src/schemas/common.ts) exists so that "3" is accepted
-// wherever 3 is. v2.0.1 applied it to 191 params and #33 swept up the 24
-// required stragglers. This file stops the next one appearing: a newly added
-// tool that hand-rolls `z.number()` for a REQUIRED param, or for index/nValues,
-// fails here with the offending tool.param named.
+// Two ratchets from issue #33, both scanning the whole registered tool surface
+// so a new tool cannot quietly reintroduce what the sweep cleaned up.
+//
+// COERCION. MCP clients sometimes serialize numbers as JSON strings;
+// `intCoerce` (src/schemas/common.ts) exists so that "3" is accepted wherever 3
+// is. v2.0.1 applied it to 191 params and #33 swept up the 24 required
+// stragglers. A newly added tool that hand-rolls `z.number()` for a REQUIRED
+// param, or for index/nValues, fails here with the offending tool.param named.
+//
+// ADVERTISED DEFAULTS, in the second describe block below: a param whose default
+// the server applies but never publishes.
 //
 // Deliberately NOT covered: OPTIONAL params that still reject string numbers
 // (137 of them when this was written). A client can omit an optional filter, so
@@ -115,9 +120,7 @@ interface NumericField {
   tool: string;
   param: string;
   required: boolean;
-  /** Every probed value the field accepted. Empty means the field is not numeric. */
-  accepted: number[];
-  /** Accepted values whose string form the field rejects — the defect. */
+  /** Probed values the field accepts but whose string form it rejects — the defect. */
   rejectedAsString: number[];
 }
 
@@ -144,7 +147,6 @@ function numericFields(tools: RegisteredTools): NumericField[] {
         tool,
         param,
         required: required.has(param),
-        accepted,
         // EVERY accepted value must survive its own string form, not just the
         // first: a union whose sentinel branch does not coerce is still broken
         // for a client that can only send strings.
@@ -157,7 +159,18 @@ function numericFields(tools: RegisteredTools): NumericField[] {
 
 const tools = registerEveryTool();
 const fields = numericFields(tools);
-const isPagination = (f: NumericField) => f.param === 'index' || f.param === 'nValues';
+
+function isPagination(field: NumericField): boolean {
+  return field.param === 'index' || field.param === 'nValues';
+}
+
+// Both assertions below are "this list is empty"; only the selector and the
+// remediation hint differ.
+function offendersMatching(selector: (field: NumericField) => boolean): string[] {
+  return fields
+    .filter((field) => selector(field) && field.rejectedAsString.length > 0)
+    .map((field) => `${field.tool}.${field.param} (rejects ${field.rejectedAsString.map((v) => `"${v}"`).join(', ')})`);
+}
 
 describe('string-encoded numbers are accepted wherever a number is (issue #33)', () => {
   // Non-vacuity guards. Every assertion below is "the offender list is empty",
@@ -180,9 +193,7 @@ describe('string-encoded numbers are accepted wherever a number is (issue #33)',
   it('no REQUIRED numeric param rejects its own string form', () => {
     // A required param that rejects "3" makes its tool uncallable from a
     // string-serializing client — there is no way to omit it.
-    const offenders = fields
-      .filter((f) => f.required && f.rejectedAsString.length > 0)
-      .map((f) => `${f.tool}.${f.param} (rejects ${f.rejectedAsString.map((v) => `"${v}"`).join(', ')})`);
+    const offenders = offendersMatching((field) => field.required);
     expect(
       offenders,
       `use the intCoerce-backed schemas from src/schemas/common.ts for: ${offenders.join('; ')}`,
@@ -190,12 +201,61 @@ describe('string-encoded numbers are accepted wherever a number is (issue #33)',
   });
 
   it('no index/nValues pagination param rejects its own string form', () => {
-    const offenders = fields
-      .filter((f) => isPagination(f) && f.rejectedAsString.length > 0)
-      .map((f) => `${f.tool}.${f.param} (rejects ${f.rejectedAsString.map((v) => `"${v}"`).join(', ')})`);
+    const offenders = offendersMatching(isPagination);
     expect(
       offenders,
       `use PaginationParams / paginationWithDefaults for: ${offenders.join('; ')}`,
+    ).toEqual([]);
+  });
+});
+
+interface AppliedDefault {
+  tool: string;
+  param: string;
+  value: unknown;
+  advertised: boolean;
+}
+
+// Params the server substitutes a value for when the client omits them.
+const appliedDefaults: AppliedDefault[] = [];
+for (const [tool, def] of Object.entries(tools)) {
+  if (!def.inputSchema) continue;
+  const emitted = z.toJSONSchema(def.inputSchema, { io: 'input' }) as {
+    properties?: Record<string, { default?: unknown }>;
+  };
+  for (const [param, schema] of Object.entries(def.inputSchema.shape as Record<string, z.ZodType>)) {
+    const parsed = schema.safeParse(undefined);
+    if (!parsed.success || parsed.data === undefined) continue;
+    appliedDefaults.push({
+      tool,
+      param,
+      value: parsed.data,
+      advertised: emitted.properties?.[param]?.default !== undefined,
+    });
+  }
+}
+
+describe('a param that applies a default also advertises it (issue #33)', () => {
+  // These defaults are wire behaviour: params go straight into the query string,
+  // so `nValues=0` and an omitted `nValues` are different HTTP requests. A client
+  // that is not told about the substitution cannot reason about what it sends.
+  //
+  // The trap this guards: zod 4 renders a z.preprocess pipe — which is every
+  // intCoerce param — from its input leg when emitting JSON Schema in INPUT mode,
+  // and drops a `default` attached to any outer wrapper. `.optional().default(N)`
+  // therefore applies N at runtime while advertising nothing. `.prefault(N)`
+  // survives the emit; see the comment on the factories in src/schemas/common.ts.
+  it('found a plausible number of defaulted params', () => {
+    expect(appliedDefaults.length).toBeGreaterThan(100);
+  });
+
+  it('advertises every default it applies', () => {
+    const silent = appliedDefaults
+      .filter((d) => !d.advertised)
+      .map((d) => `${d.tool}.${d.param}=${JSON.stringify(d.value)}`);
+    expect(
+      silent,
+      `use .prefault(value) instead of .optional().default(value) for: ${silent.join(', ')}`,
     ).toEqual([]);
   });
 });
