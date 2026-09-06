@@ -28,13 +28,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the setup commands and the resolution order. Ported from
   lexware-mcp-server 4.2.0 (#44).
 
-### Fixed
-
-- The CI audit gate went red with no change in this repository: new advisories
-  extended past the `fast-uri` and `qs` override floors. Both move up within the
-  range their dependents already declare — `fast-uri` `^3.1.7`, `qs` `^6.16.0` —
-  and the `PINS` table in `overrides.test.ts` moves with them.
-
 ## [3.1.0] — 2026-08-20
 
 ### Added
