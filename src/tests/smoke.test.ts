@@ -58,13 +58,13 @@ function toolCount(server: McpServer): number {
 }
 
 describe('Transkribus MCP Server — smoke tests', () => {
-  it('registers 307 tools for the full server', () => {
+  it('registers 304 tools for the full server', () => {
     const server = freshServer();
     registerAll(server, fullEntry);
-    // 5 auth + 129 collections + 42 recognition/training + 21 models
+    // 5 auth + 126 collections + 42 recognition/training + 21 models
     // + 11 search/KWS + 14 jobs/actions + 24 users/crowd/eLearning + 57 admin/system
     // + 4 processing (Metagrapho)
-    expect(toolCount(server)).toBe(307);
+    expect(toolCount(server)).toBe(304);
   });
 
   it('registers 5 auth tools', () => {
@@ -73,7 +73,7 @@ describe('Transkribus MCP Server — smoke tests', () => {
     expect(toolCount(server)).toBe(5);
   });
 
-  it('registers 129 collection tools', () => {
+  it('registers 126 collection tools', () => {
     const server = freshServer();
     registerCollectionCoreTools(server);
     registerCollectionDocumentTools(server);
@@ -86,7 +86,7 @@ describe('Transkribus MCP Server — smoke tests', () => {
     registerCollectionLabelTools(server);
     registerCollectionActivityTools(server);
     registerCollectionTagTools(server);
-    expect(toolCount(server)).toBe(129);
+    expect(toolCount(server)).toBe(126);
   });
 
   it('registers 33 recognition tools', () => {
@@ -210,10 +210,10 @@ describe('Transkribus MCP Server — smoke tests', () => {
   });
 
   // Entry point tests — these run the exact composition each split binary ships.
-  it('registers 134 tools for collections entry point', () => {
+  it('registers 131 tools for collections entry point', () => {
     const server = freshServer();
     registerAll(server, collectionsEntry);
-    expect(toolCount(server)).toBe(134); // 5 auth + 129 collections
+    expect(toolCount(server)).toBe(131); // 5 auth + 126 collections
   });
 
   it('registers 47 tools for transcription entry point', () => {
