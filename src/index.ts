@@ -39,7 +39,7 @@ const server = createServer('transkribus-mcp-server');
 // Auth
 registerAuthTools(server);
 
-// Collections (127 tools)
+// Collections (129 tools)
 registerCollectionCoreTools(server);
 registerCollectionDocumentTools(server);
 registerCollectionPageTools(server);

@@ -1,8 +1,34 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { transkribusRequest } from '../services/transkribus.js';
-import { handleToolRequest } from '../helpers.js';
+import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { assertTranskribusImageUrl, fetchImageBytes, transkribusRequest } from '../services/transkribus.js';
+import { handleRawToolRequest, handleToolRequest } from '../helpers.js';
 import { CollIdSchema, DocIdSchema, PageNrSchema, TranscriptIdSchema, intCoerce } from '../schemas/common.js';
+
+export const DEFAULT_IMAGE_MAX_BYTES = 5_000_000;
+
+/** Pick the thumbnail or full-size image URL off a TrpPage. Both are absolute
+ *  fimagestore URLs the API itself produced. */
+export function pickPageImageUrl(page: unknown, size: 'thumb' | 'full'): unknown {
+  const p = (page ?? {}) as { url?: unknown; thumbUrl?: unknown };
+  return size === 'thumb' ? p.thumbUrl : p.url;
+}
+
+export function buildImageResult(
+  data: Buffer,
+  mimeType: string,
+  meta: { pageNr: number; size: string; sourceUrl: string }
+): CallToolResult {
+  return {
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify({ ...meta, mimeType, bytes: data.length }, null, 2),
+      },
+      { type: 'image', data: data.toString('base64'), mimeType },
+    ],
+  };
+}
 
 export function registerCollectionPageTools(server: McpServer): void {
   // 1. DELETE /collections/{collId}/{id}/{page}
@@ -266,7 +292,40 @@ export function registerCollectionPageTools(server: McpServer): void {
     })
   );
 
-  // 14. GET /collections/{collId}/{id}/{page}/plaintext
+  // 14. Page image as an MCP image block. There is no REST endpoint that streams
+  //     image bytes, so this reads the page metadata and downloads the absolute
+  //     fimagestore URL it carries.
+  server.registerTool(
+    'transkribus_page_get_image',
+    {
+      title: 'Get Page Image',
+      description:
+        'Return the scanned image of a page as an image content block, so a multimodal client can read the manuscript itself. ' +
+        `Defaults to the thumbnail and a ${DEFAULT_IMAGE_MAX_BYTES}-byte cap; ask for size "full" to get the full-resolution scan.`,
+      inputSchema: z.object({
+        collId: CollIdSchema,
+        id: DocIdSchema,
+        page: PageNrSchema,
+        size: z.enum(['thumb', 'full']).optional().describe('Which image to fetch (default "thumb")'),
+        maxBytes: intCoerce(z.number().int().min(1_000).max(20_000_000)).optional()
+          .describe(`Reject an image larger than this many bytes (default ${DEFAULT_IMAGE_MAX_BYTES})`),
+      }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    handleRawToolRequest(async (params) => {
+      const size: 'thumb' | 'full' = params.size ?? 'thumb';
+      const page = await transkribusRequest('GET', `/collections/${params.collId}/${params.id}/${params.page}`);
+      const url = assertTranskribusImageUrl(pickPageImageUrl(page, size));
+      const { data, mimeType } = await fetchImageBytes(url, params.maxBytes ?? DEFAULT_IMAGE_MAX_BYTES);
+      return buildImageResult(data, mimeType, {
+        pageNr: params.page,
+        size,
+        sourceUrl: url.toString(),
+      });
+    })
+  );
+
+  // 15. GET /collections/{collId}/{id}/{page}/plaintext
   server.registerTool(
     'transkribus_page_get_plaintext',
     {
@@ -285,7 +344,7 @@ export function registerCollectionPageTools(server: McpServer): void {
     })
   );
 
-  // 15. POST /collections/{collId}/{id}/{page}/plaintext
+  // 16. POST /collections/{collId}/{id}/{page}/plaintext
   server.registerTool(
     'transkribus_page_assign_plaintext',
     {
@@ -311,7 +370,7 @@ export function registerCollectionPageTools(server: McpServer): void {
     })
   );
 
-  // 16. POST /collections/{collId}/{id}/{page}/replacePage
+  // 17. POST /collections/{collId}/{id}/{page}/replacePage
   server.registerTool(
     'transkribus_page_replace',
     {
@@ -330,7 +389,7 @@ export function registerCollectionPageTools(server: McpServer): void {
     })
   );
 
-  // 17. POST /collections/{collId}/{id}/{page}/text
+  // 18. POST /collections/{collId}/{id}/{page}/text
   server.registerTool(
     'transkribus_page_post_transcript',
     {
@@ -355,7 +414,7 @@ export function registerCollectionPageTools(server: McpServer): void {
     })
   );
 
-  // 18. GET /collections/{collId}/{id}/{page}/{transcriptId}
+  // 19. GET /collections/{collId}/{id}/{page}/{transcriptId}
   server.registerTool(
     'transkribus_page_get_transcript',
     {
@@ -375,7 +434,7 @@ export function registerCollectionPageTools(server: McpServer): void {
     })
   );
 
-  // 19. POST /collections/{collId}/{id}/{page}/{transcriptId}/status
+  // 20. POST /collections/{collId}/{id}/{page}/{transcriptId}/status
   server.registerTool(
     'transkribus_page_update_transcript_status',
     {
@@ -398,7 +457,7 @@ export function registerCollectionPageTools(server: McpServer): void {
     })
   );
 
-  // 20. GET /collections/{collId}/{id}/{page}/text
+  // 21. GET /collections/{collId}/{id}/{page}/text
   server.registerTool(
     'transkribus_page_get_text',
     {
@@ -417,7 +476,7 @@ export function registerCollectionPageTools(server: McpServer): void {
     })
   );
 
-  // 21. POST /collections/{collId}/{id}/{page}/{transcriptId}
+  // 22. POST /collections/{collId}/{id}/{page}/{transcriptId}
   server.registerTool(
     'transkribus_page_update_status_v2',
     {

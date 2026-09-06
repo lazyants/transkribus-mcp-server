@@ -881,3 +881,76 @@ export async function transkribusUpload<T = unknown>(
     throw wrapAxiosError(err);
   }
 }
+
+// Hosts an image URL may point at. The URL itself arrives inside a Transkribus
+// API response body (TrpPage.url / TrpPage.thumbUrl), so downloading it blindly
+// would be an SSRF primitive aimed at whatever the MCP host can reach — link-local
+// metadata endpoints, localhost admin ports, the LAN. Checked against
+// URL.hostname, which excludes userinfo and port: 'transkribus.eu@evil.example'
+// has hostname 'evil.example' and 'evil-transkribus.eu' does not match the
+// dot-prefixed suffix, so both are rejected.
+const IMAGE_HOST = 'transkribus.eu';
+
+export function assertTranskribusImageUrl(raw: unknown): URL {
+  if (typeof raw !== 'string' || raw.length === 0) {
+    throw new Error('Page image URL missing from the page metadata');
+  }
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    // The malformed URL is the only detail the parse error carries, and it is
+    // already named in this message — nothing to chain.
+    throw new Error(`Page image URL is not a valid URL: ${capMessage(raw)}`);
+  }
+  if (url.protocol !== 'https:') {
+    throw new Error(`Refusing a non-https page image URL: ${url.protocol}//${url.host}`);
+  }
+  if (url.hostname !== IMAGE_HOST && !url.hostname.endsWith(`.${IMAGE_HOST}`)) {
+    throw new Error(`Refusing a page image URL outside ${IMAGE_HOST}: ${url.hostname}`);
+  }
+  return url;
+}
+
+/** Download a page image. Deliberately NOT the session client: this is a
+ *  third-party host, so no JSESSIONID is sent and no 401 re-login interceptor
+ *  fires on its responses. Redirects are re-validated per hop — the first URL
+ *  passing the allowlist says nothing about where a 302 points. */
+export async function fetchImageBytes(
+  url: URL,
+  maxBytes: number
+): Promise<{ data: Buffer; mimeType: string }> {
+  let response;
+  try {
+    response = await axios.get<ArrayBuffer>(url.toString(), {
+      responseType: 'arraybuffer',
+      timeout: REQUEST_TIMEOUT,
+      // Enforced by axios while the response accumulates, so an oversized image
+      // is aborted rather than fully buffered. maxBodyLength is deliberately not
+      // set: it caps REQUEST bodies, and this is a GET.
+      maxContentLength: maxBytes,
+      maxRedirects: 5,
+      beforeRedirect: (options) => {
+        assertTranskribusImageUrl(options.href);
+      },
+      headers: { Accept: 'image/*' },
+    });
+  } catch (err) {
+    // Same treatment as every other request in this module. This instance sends
+    // no session cookie, so nothing is known to leak today — but an unsanitized
+    // AxiosError reaching a caller that inspects it deeply is exactly the class
+    // the redaction layer above exists to close, and this would otherwise be the
+    // one call site not covered by it.
+    throw wrapAxiosError(err);
+  }
+
+  const contentType = String(response.headers['content-type'] ?? '');
+  const mimeType = contentType.split(';')[0].trim().toLowerCase();
+  if (!mimeType.startsWith('image/')) {
+    // A login or error page would otherwise be handed to the client as an
+    // image content block it cannot render.
+    throw new Error(`Expected an image response, got content-type "${contentType || 'none'}"`);
+  }
+
+  return { data: Buffer.from(response.data), mimeType };
+}
