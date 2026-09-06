@@ -40,6 +40,18 @@ vi.mock('axios', async (importOriginal) => {
   };
 });
 
+// The service module reads the OS keyring before the environment. Stub the
+// native module so these env-driven tests never touch a real credential store —
+// a developer with entries stored under the default service name would
+// otherwise see them override the env vars set below.
+vi.mock('@napi-rs/keyring', () => ({
+  AsyncEntry: class {
+    getPassword(): Promise<string | undefined> {
+      return Promise.resolve(undefined);
+    }
+  },
+}));
+
 // GOTCHA: an adapter that RESOLVES a response with status 401 never enters
 // axios's onRejected chain — settling status/rejection is the adapter's own
 // job. Reject with a genuine AxiosError carrying `.config` (so the
@@ -136,5 +148,151 @@ describe('interceptor recursion (#30) — real adapter, genuine interceptor pipe
     // on the retried request.
     expect(protectedHits).toBe(2);
     expect(loginHits).toBe(1);
+  });
+
+  it('Test C — credentials added after startup are used on re-auth, without a restart', async () => {
+    // A session-id-only setup: the first request caches a credential snapshot
+    // with no login pair. When that session expires, the 401 handler must
+    // re-read the sources rather than keep reporting the snapshot's missing
+    // user and password until the process restarts.
+    delete process.env.TRANSKRIBUS_USER;
+    delete process.env.TRANSKRIBUS_PASSWORD;
+
+    let loginHits = 0;
+    setAdapter(async (config) => {
+      const url = config.url as string;
+      if (url === '/auth/login') {
+        loginHits++;
+        return { status: 200, statusText: 'OK', headers: {}, config, data: { sessionId: 'fresh-session-id' } };
+      }
+      // The stale configured session keeps failing until a login replaces it,
+      // so the second request meets a 401 exactly like the first.
+      const cookie = String((config.headers as Record<string, unknown> | undefined)?.Cookie ?? '');
+      if (!cookie.includes('fresh-session-id')) throw make401(config);
+      return { status: 200, statusText: 'OK', headers: {}, config, data: { ok: true } };
+    });
+
+    const { transkribusRequest } = await import('../services/transkribus.js');
+
+    // Nothing to log in with yet: the 401 cannot be recovered.
+    const failed = await transkribusRequest('GET', '/collections').catch((e: unknown) => e);
+    expect(failed).toBeInstanceOf(Error);
+    expect(loginHits).toBe(0);
+
+    // The user stores the missing pair while the server keeps running.
+    process.env.TRANSKRIBUS_USER = 'test-user';
+    process.env.TRANSKRIBUS_PASSWORD = 'test-password';
+
+    expect(await transkribusRequest('GET', '/collections')).toEqual({ ok: true });
+    expect(loginHits).toBe(1);
+  });
+
+  it('Test D — a rotated session id is adopted without an account login', async () => {
+    // The other half of the same setup: no user or password anywhere, and the
+    // fix for it is a replacement session rather than a login pair.
+    delete process.env.TRANSKRIBUS_USER;
+    delete process.env.TRANSKRIBUS_PASSWORD;
+
+    let loginHits = 0;
+    setAdapter(async (config) => {
+      const url = config.url as string;
+      if (url === '/auth/login') {
+        loginHits++;
+        return { status: 200, statusText: 'OK', headers: {}, config, data: { sessionId: 'from-login' } };
+      }
+      const cookie = String((config.headers as Record<string, unknown> | undefined)?.Cookie ?? '');
+      if (!cookie.includes('rotated-session-id')) throw make401(config);
+      return { status: 200, statusText: 'OK', headers: {}, config, data: { ok: true } };
+    });
+
+    const { transkribusRequest } = await import('../services/transkribus.js');
+
+    // The configured session is stale and there is nothing to log in with.
+    expect(await transkribusRequest('GET', '/collections').catch((e: unknown) => e)).toBeInstanceOf(
+      Error
+    );
+
+    // The user replaces the session id instead of adding an account.
+    process.env.TRANSKRIBUS_SESSION_ID = 'rotated-session-id';
+
+    expect(await transkribusRequest('GET', '/collections')).toEqual({ ok: true });
+    // Adopted directly — no account login was attempted, and none was possible.
+    expect(loginHits).toBe(0);
+  });
+
+  it('Test E — a password rotated mid-run is used by the request that meets the 401', async () => {
+    process.env.TRANSKRIBUS_USER = 'test-user';
+    process.env.TRANSKRIBUS_PASSWORD = 'old-password';
+
+    let sessionValid = true;
+    const submittedPasswords: string[] = [];
+    setAdapter(async (config) => {
+      const url = config.url as string;
+      if (url === '/auth/login') {
+        const body = new URLSearchParams(String(config.data ?? ''));
+        submittedPasswords.push(String(body.get('pw')));
+        if (body.get('pw') !== 'new-password') throw make401(config);
+        return { status: 200, statusText: 'OK', headers: {}, config, data: { sessionId: 'post-rotation-session' } };
+      }
+      const cookie = String((config.headers as Record<string, unknown> | undefined)?.Cookie ?? '');
+      if (cookie.includes('post-rotation-session')) {
+        return { status: 200, statusText: 'OK', headers: {}, config, data: { ok: true } };
+      }
+      if (sessionValid) return { status: 200, statusText: 'OK', headers: {}, config, data: { ok: true } };
+      throw make401(config);
+    });
+
+    const { transkribusRequest } = await import('../services/transkribus.js');
+
+    // First request succeeds on the configured session — and caches a credential
+    // snapshot holding the password as it is right now.
+    expect(await transkribusRequest('GET', '/collections')).toEqual({ ok: true });
+
+    // The account password is rotated while the server keeps running, and the
+    // session it started with expires.
+    process.env.TRANSKRIBUS_PASSWORD = 'new-password';
+    sessionValid = false;
+
+    // The request that MEETS the expired session must recover, not merely warm
+    // the cache for the next one: re-auth re-reads the sources before logging in.
+    expect(await transkribusRequest('GET', '/collections')).toEqual({ ok: true });
+    expect(submittedPasswords).toEqual(['new-password']);
+  });
+
+  it('Test F — concurrent 401s after a session rotation all adopt the new session', async () => {
+    // Both requests carry the same dead session. The first re-auth replaces the
+    // module-global session id while the second is still resolving, so a second
+    // caller comparing against that global would mistake the freshly adopted
+    // session for the one that just failed and reject a request that should
+    // have succeeded.
+    delete process.env.TRANSKRIBUS_USER;
+    delete process.env.TRANSKRIBUS_PASSWORD;
+
+    let loginHits = 0;
+    setAdapter(async (config) => {
+      const url = config.url as string;
+      if (url === '/auth/login') {
+        loginHits++;
+        return { status: 200, statusText: 'OK', headers: {}, config, data: { sessionId: 'from-login' } };
+      }
+      const cookie = String((config.headers as Record<string, unknown> | undefined)?.Cookie ?? '');
+      if (!cookie.includes('rotated-session-id')) throw make401(config);
+      return { status: 200, statusText: 'OK', headers: {}, config, data: { ok: true } };
+    });
+
+    const { transkribusRequest } = await import('../services/transkribus.js');
+
+    // Prime the module with the configured (now dead) session.
+    expect(await transkribusRequest('GET', '/collections').catch((e: unknown) => e)).toBeInstanceOf(
+      Error
+    );
+    process.env.TRANSKRIBUS_SESSION_ID = 'rotated-session-id';
+
+    const results = await Promise.allSettled([
+      transkribusRequest('GET', '/collections'),
+      transkribusRequest('GET', '/collections'),
+    ]);
+    expect(results.map((r) => r.status)).toEqual(['fulfilled', 'fulfilled']);
+    expect(loginHits).toBe(0);
   });
 });
