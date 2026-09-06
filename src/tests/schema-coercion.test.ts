@@ -93,78 +93,62 @@ function registerEveryTool(): RegisteredTools {
   return (server as unknown as { _registeredTools: RegisteredTools })._registeredTools;
 }
 
-interface JsonSchemaProperty {
-  type?: string;
-  const?: unknown;
-  minimum?: number;
-  maximum?: number;
-  exclusiveMinimum?: number;
-  exclusiveMaximum?: number;
-  anyOf?: JsonSchemaProperty[];
-  oneOf?: JsonSchemaProperty[];
+// Candidate values, probed against the real Zod schema rather than against a
+// reconstruction of it. Deriving the value domain from the emitted JSON Schema
+// was tried and abandoned: every added shape (bounds, then anyOf, then nested
+// anyOf, allOf, $ref, mixed enums) left another one silently unscanned, because
+// that approach re-implements Zod's validation instead of asking it.
+const PROBE_LADDER = [3, 1, 0, 4, -1, 0.5];
+
+// Any number appearing anywhere in the emitted property — minimum, maximum,
+// const, an enum entry, at any nesting depth. This is a value HARVEST, not a
+// domain reconstruction: it cannot be wrong about a shape it does not
+// understand, only silent about one, and the ladder covers the ordinary cases.
+function harvestNumbers(node: unknown, into: number[] = []): number[] {
+  if (typeof node === 'number') into.push(node, node + 1);
+  else if (Array.isArray(node)) for (const item of node) harvestNumbers(item, into);
+  else if (node && typeof node === 'object') for (const value of Object.values(node)) harvestNumbers(value, into);
+  return into;
 }
 
 interface NumericField {
   tool: string;
   param: string;
   required: boolean;
-  probes: number[];
-  accepted?: number;
-  coerces: boolean;
+  /** Every probed value the field accepted. Empty means the field is not numeric. */
+  accepted: number[];
+  /** Accepted values whose string form the field rejects — the defect. */
+  rejectedAsString: number[];
 }
 
-// A value can satisfy the property itself or any of its alternatives: a union or
-// a .nullable() emits `anyOf` and carries no `type` of its own. Ignoring those
-// is how a numeric param drops out of the scan without anything going red.
-function branches(prop: JsonSchemaProperty): JsonSchemaProperty[] {
-  return [prop, ...(prop.anyOf ?? []), ...(prop.oneOf ?? [])];
-}
-
-// One candidate value per numeric branch, inside that branch's own bounds and as
-// small as they allow. Probing with a fixed literal would silently SKIP any param
-// whose constraints exclude it (`z.number().int().min(4)` rejects 3), and a
-// skipped param produces exactly what a clean one produces.
-function numericProbes(prop: JsonSchemaProperty): number[] {
-  const probes: number[] = [];
-  for (const branch of branches(prop)) {
-    if (typeof branch.const === 'number') {
-      probes.push(branch.const);
-      continue;
-    }
-    if (branch.type !== 'integer' && branch.type !== 'number') continue;
-    const low = branch.exclusiveMinimum !== undefined ? branch.exclusiveMinimum + 1 : branch.minimum;
-    const high = branch.exclusiveMaximum !== undefined ? branch.exclusiveMaximum - 1 : branch.maximum;
-    let value = 3;
-    if (low !== undefined && value < low) value = low;
-    if (high !== undefined && value > high) value = high;
-    probes.push(value);
-  }
-  return probes;
-}
-
-// Numeric params are identified from the JSON Schema MCP actually publishes, and
-// `required` is read from that same schema rather than guessed.
+// A param is "numeric" when it actually accepts a number, which is what matters
+// to a client. `required` is read from the JSON Schema MCP publishes, so it
+// matches what a client is told it must send.
 function numericFields(tools: RegisteredTools): NumericField[] {
   const fields: NumericField[] = [];
   for (const [tool, def] of Object.entries(tools)) {
     if (!def.inputSchema) continue;
     const emitted = z.toJSONSchema(def.inputSchema, { io: 'input' }) as {
-      properties?: Record<string, JsonSchemaProperty>;
+      properties?: Record<string, unknown>;
       required?: string[];
     };
     const required = new Set(emitted.required ?? []);
+    const shape = def.inputSchema.shape as Record<string, z.ZodType>;
     for (const [param, prop] of Object.entries(emitted.properties ?? {})) {
-      const probes = numericProbes(prop);
-      if (probes.length === 0) continue;
-      const field = (def.inputSchema.shape as Record<string, z.ZodType>)[param];
-      const accepted = probes.find((value) => field.safeParse(value).success);
+      const field = shape[param];
+      if (!field) continue;
+      const candidates = new Set([...PROBE_LADDER, ...harvestNumbers(prop)]);
+      const accepted = [...candidates].filter((value) => field.safeParse(value).success);
+      if (accepted.length === 0) continue;
       fields.push({
         tool,
         param,
         required: required.has(param),
-        probes,
         accepted,
-        coerces: accepted !== undefined && field.safeParse(String(accepted)).success,
+        // EVERY accepted value must survive its own string form, not just the
+        // first: a union whose sentinel branch does not coerce is still broken
+        // for a client that can only send strings.
+        rejectedAsString: accepted.filter((value) => !field.safeParse(String(value)).success),
       });
     }
   }
@@ -177,8 +161,8 @@ const isPagination = (f: NumericField) => f.param === 'index' || f.param === 'nV
 
 describe('string-encoded numbers are accepted wherever a number is (issue #33)', () => {
   // Non-vacuity guards. Every assertion below is "the offender list is empty",
-  // and an empty traversal produces exactly that, so a scan that silently
-  // stopped finding fields would look identical to a pass.
+  // and an empty scan produces exactly that, so a scan that silently stopped
+  // finding fields would look identical to a pass.
   it('registers every module under src/tools/', () => {
     const toolsDir = resolve(dirname(fileURLToPath(import.meta.url)), '../tools');
     const modules = readdirSync(toolsDir).filter((f) => f.endsWith('.ts'));
@@ -188,13 +172,7 @@ describe('string-encoded numbers are accepted wherever a number is (issue #33)',
     expect(Object.keys(tools).length).toBeGreaterThan(250);
   });
 
-  it('exercised every numeric param it found', () => {
-    // If no value inside a param's declared bounds is accepted, the coercion
-    // answer below is meaningless for it — fail rather than skip it.
-    const unexercised = fields
-      .filter((f) => f.accepted === undefined)
-      .map((f) => `${f.tool}.${f.param} (probes ${f.probes.join('/')})`);
-    expect(unexercised, `no in-bounds probe was accepted: ${unexercised.join(', ')}`).toEqual([]);
+  it('found a plausible number of numeric params', () => {
     expect(fields.filter((f) => f.required).length).toBeGreaterThan(300);
     expect(fields.filter(isPagination).length).toBeGreaterThan(100);
   });
@@ -203,21 +181,21 @@ describe('string-encoded numbers are accepted wherever a number is (issue #33)',
     // A required param that rejects "3" makes its tool uncallable from a
     // string-serializing client — there is no way to omit it.
     const offenders = fields
-      .filter((f) => f.required && !f.coerces)
-      .map((f) => `${f.tool}.${f.param}`);
+      .filter((f) => f.required && f.rejectedAsString.length > 0)
+      .map((f) => `${f.tool}.${f.param} (rejects ${f.rejectedAsString.map((v) => `"${v}"`).join(', ')})`);
     expect(
       offenders,
-      `use the intCoerce-backed schemas from src/schemas/common.ts for: ${offenders.join(', ')}`,
+      `use the intCoerce-backed schemas from src/schemas/common.ts for: ${offenders.join('; ')}`,
     ).toEqual([]);
   });
 
   it('no index/nValues pagination param rejects its own string form', () => {
     const offenders = fields
-      .filter((f) => isPagination(f) && !f.coerces)
-      .map((f) => `${f.tool}.${f.param}`);
+      .filter((f) => isPagination(f) && f.rejectedAsString.length > 0)
+      .map((f) => `${f.tool}.${f.param} (rejects ${f.rejectedAsString.map((v) => `"${v}"`).join(', ')})`);
     expect(
       offenders,
-      `use PaginationParams / paginationWithDefaults for: ${offenders.join(', ')}`,
+      `use PaginationParams / paginationWithDefaults for: ${offenders.join('; ')}`,
     ).toEqual([]);
   });
 });
