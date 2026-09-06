@@ -98,7 +98,11 @@ Notes relevant to the supply-chain and credential surface:
   `AsyncEntry.getPassword(signal)` abort signal alone would not achieve that —
   napi-rs cancels only work that has not started — so each read is additionally
   raced against a 5-second deadline, after which the environment fallback
-  applies.
+  applies. Residual: the abandoned native read keeps a worker thread until the
+  OS itself gives up on it (on macOS, a keychain permission dialog nobody
+  answers). Credential resolution has already returned by then and the server
+  serves requests normally; the only visible effect is on a process that would
+  otherwise be idle enough to exit.
 - **Credential resolution never echoes a credential.** The "no credentials
   found" error names only the sources to configure (keyring service/accounts,
   environment variables) and prints the *default* service constant, never the
