@@ -102,16 +102,30 @@ describe('buildPlaintextDocument', () => {
     expect(nextStartPage).toBeUndefined();
   });
 
-  it('always returns the first page whole, even when it alone exceeds the budget', () => {
-    // Refusing it would leave no way to read that page at all, and no
-    // nextStartPage that could make progress.
-    const { text, used, nextStartPage } = buildPlaintextDocument(
+  it('never exceeds the budget, not even for a single oversized page', () => {
+    // The bound has no exceptions: a page too big to fit is reported as an
+    // error naming its size, so a caller that asked for at most N characters
+    // never receives more.
+    const { text, used } = buildPlaintextDocument(
       [{ pageNr: 1, text: 'x'.repeat(5000) }, { pageNr: 2, text: 'y' }],
-      100
+      1_000
     );
-    expect(used.map((u) => u.pageNr)).toEqual([1]);
-    expect(text.length).toBeGreaterThan(5000);
-    expect(nextStartPage).toBe(2); // progress is still possible
+    expect(text.length).toBeLessThanOrEqual(1_000);
+    expect(used[0].error).toMatch(/5000 characters, above maxChars 1000/);
+    expect(used[0].error).toContain('transkribus_page_get_plaintext');
+    expect(text).not.toContain('xxxx');
+  });
+
+  it('still makes progress past an oversized page rather than stalling on it', () => {
+    // The replacement error text is short and maxChars has a 1000 floor, so the
+    // oversized page always fits — nextStartPage can never point forever at a
+    // page that can never be returned.
+    const { used } = buildPlaintextDocument(
+      [{ pageNr: 1, text: 'x'.repeat(50_000) }, { pageNr: 2, text: 'ok' }],
+      1_000
+    );
+    expect(used.map((u) => u.pageNr)).toEqual([1, 2]);
+    expect(used[1].text).toBe('ok');
   });
 
   it('renders a failed page inline instead of omitting it', () => {
@@ -165,6 +179,14 @@ describe('fetchDocPlaintext', () => {
     expect(result.pageCount).toBe(MAX_PAGES_PER_CALL);
     expect(result.truncated).toBe(true);
     expect(result.nextStartPage).toBe(101);
+  });
+
+  it('honours maxChars end to end, even when a single page dwarfs it', async () => {
+    const { deps: d } = deps([1, 2], async (nr) => (nr === 1 ? 'x'.repeat(200_000) : 'short'));
+    const result = await fetchDocPlaintext(d, { collId: 1, id: 7, maxChars: 100_000 });
+
+    expect(result.charCount).toBeLessThanOrEqual(100_000);
+    expect((result.text as string)).not.toContain('xxxx');
   });
 
   it('reports nextStartPage when the character budget truncates', async () => {

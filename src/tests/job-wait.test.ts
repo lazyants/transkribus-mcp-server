@@ -86,6 +86,15 @@ describe('extractDownloadUrl', () => {
       .toBe('http://example.org/x.zip');
   });
 
+  it('drops trailing prose punctuation that is not part of the link', () => {
+    // "…(https://host/x.zip)." must not yield a URL ending in ")." — that is a
+    // different, broken link.
+    expect(extractDownloadUrl(job('FINISHED', { result: 'Download (https://files.transkribus.eu/Get?id=abc).' })))
+      .toBe('https://files.transkribus.eu/Get?id=abc');
+    expect(extractDownloadUrl(job('FINISHED', { result: 'Ready: https://files.transkribus.eu/a.zip, valid 2 weeks' })))
+      .toBe('https://files.transkribus.eu/a.zip');
+  });
+
   it('returns undefined when result holds no URL, is absent, or is not a string', () => {
     expect(extractDownloadUrl(job('FINISHED', { result: 'OK' }))).toBeUndefined();
     expect(extractDownloadUrl(job('FINISHED'))).toBeUndefined();
@@ -189,6 +198,18 @@ describe('waitForJob', () => {
     expect(result.timedOut).toBe(true);
     expect(result.waitedSeconds).toBeLessThanOrEqual(10);
     expect(result.state).toBe('RUNNING'); // the last COMPLETED poll
+  });
+
+  it('does not start another poll once the budget is spent', async () => {
+    // A clamped sleep can resolve at the same instant its deadline fires; issuing
+    // a poll there costs a session round trip whose answer is thrown away.
+    const clock = virtualClock();
+    let calls = 0;
+    await waitForJob(
+      deps(clock, async () => { calls += 1; return job('RUNNING'); }),
+      { pollIntervalMs: 60_000, maxWaitMs: 5_000 }
+    );
+    expect(calls).toBe(1);
   });
 
   it('propagates a poll that rejects rather than reporting it as a timeout', async () => {

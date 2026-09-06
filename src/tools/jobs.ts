@@ -15,12 +15,18 @@ export function isTerminalJobState(state: unknown): boolean {
 
 /** An export job's download link arrives in the job's free-form `result` string.
  *  Rather than assume the field IS a URL (the bean only types it String), pull the
- *  first http(s) URL out of it and surface nothing when there is none. */
+ *  first http(s) URL out of it and surface nothing when there is none.
+ *
+ *  Because the field is prose, the match is trimmed of trailing punctuation:
+ *  "Download (https://host/x.zip)." must not yield a URL ending in ")." — that
+ *  is a different, broken link. A real URL ending in one of these characters is
+ *  possible but far rarer than a sentence that ends after one. */
 export function extractDownloadUrl(job: unknown): string | undefined {
   if (!job || typeof job !== 'object') return undefined;
   const result = (job as { result?: unknown }).result;
   if (typeof result !== 'string') return undefined;
-  return /https?:\/\/[^\s"'<>]+/.exec(result)?.[0];
+  const match = /https?:\/\/[^\s"'<>]+/.exec(result)?.[0];
+  return match?.replace(/[.,;:!?)\]}]+$/, '') || undefined;
 }
 
 export interface WaitForJobDeps {
@@ -65,6 +71,11 @@ export async function waitForJob(
   let polls = 0;
 
   for (;;) {
+    // Checked BEFORE issuing the request, not only after: a clamped sleep can
+    // resolve at the same instant its deadline timer fires, and starting a poll
+    // there means a login/session round trip whose answer is discarded.
+    if (polls > 0 && deps.now() >= deadline) break;
+
     const outcome = await deps.raceWithDeadline(deps.getJob(), deadline);
     if (outcome === TIMED_OUT) break;
 

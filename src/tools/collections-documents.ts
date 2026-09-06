@@ -44,10 +44,20 @@ export interface PlaintextPageEntry {
   error?: string;
 }
 
+function renderPage(entry: PlaintextPageEntry): string {
+  return `--- page ${entry.pageNr} ---\n${entry.error ? `[error: ${entry.error}]` : entry.text ?? ''}\n`;
+}
+
 /** Concatenate page texts under a character budget. The budget counts the
  *  separators and newlines too — it bounds what the CLIENT receives, not just the
- *  transcript bytes. The first page is always included whole even when it alone
- *  blows the budget: dropping it would leave no way to read that page at all. */
+ *  transcript bytes, and it holds with no exceptions: a caller that asked for at
+ *  most N characters never gets more.
+ *
+ *  A single page too large to fit the whole budget is therefore reported as an
+ *  error naming its size rather than blowing past the bound. Its replacement text
+ *  is short and maxChars has a 1000 floor, so that entry always fits — which is
+ *  what keeps nextStartPage able to make progress instead of pointing forever at
+ *  a page that can never be returned. */
 export function buildPlaintextDocument(
   entries: PlaintextPageEntry[],
   maxChars: number
@@ -57,12 +67,20 @@ export function buildPlaintextDocument(
   let length = 0;
 
   for (const entry of entries) {
-    const chunk = `--- page ${entry.pageNr} ---\n${entry.error ? `[error: ${entry.error}]` : entry.text ?? ''}\n`;
-    if (used.length > 0 && length + chunk.length > maxChars) {
+    let effective = entry;
+    if (renderPage(entry).length > maxChars) {
+      const size = entry.text?.length ?? 0;
+      effective = {
+        pageNr: entry.pageNr,
+        error: `page text is ${size} characters, above maxChars ${maxChars} — raise maxChars or read this page with transkribus_page_get_plaintext`,
+      };
+    }
+    const chunk = renderPage(effective);
+    if (length + chunk.length > maxChars) {
       return { text: chunks.join(''), used, nextStartPage: entry.pageNr };
     }
     chunks.push(chunk);
-    used.push(entry);
+    used.push(effective);
     length += chunk.length;
   }
 
@@ -124,9 +142,9 @@ export async function fetchDocPlaintext(
     charCount: text.length,
     truncated: next !== undefined,
     ...(next !== undefined ? { nextStartPage: next } : {}),
-    pages: used.map(({ pageNr, error }) => ({
+    pages: used.map(({ pageNr, text: pageText, error }) => ({
       pageNr,
-      chars: entries.find((e) => e.pageNr === pageNr)?.text?.length ?? 0,
+      chars: pageText?.length ?? 0,
       ...(error ? { error } : {}),
     })),
     text,
