@@ -22,24 +22,132 @@ npx @lazyants/transkribus-mcp-server
 
 ## Configuration
 
-Transkribus uses session-based authentication. You can authenticate in two ways:
+Transkribus uses session-based authentication. Credentials are resolved in this
+order, per value:
 
-### Option 1: Username + Password (auto-login)
+1. **OS keyring** (recommended — nothing is written to a config file in clear text)
+2. **Environment variable** (`TRANSKRIBUS_USER` + `TRANSKRIBUS_PASSWORD`, or `TRANSKRIBUS_SESSION_ID`)
+
+Either a user name and password (the server logs in and manages the session) or
+a session id you already hold. A session id takes precedence when both are
+available; it expires, so a user name and password is the better choice for a
+long-running setup — and is what lets the server re-authenticate after a 401.
+
+The keyring is never required: if it is unavailable — a headless Linux box with
+no Secret Service, an unsupported platform, an install with `--omit=optional` —
+or if it does not answer within 5 seconds, the server falls back to the
+environment.
+
+### Store the credentials in the OS keyring
+
+Three entries under one service name, `transkribus-mcp` by default:
+`user`, `password` and `session-id` (store only what you use).
+
+> [!IMPORTANT]
+> The commands below read the value from an interactive prompt rather than
+> taking it as an argument, so it never lands in your shell history or the
+> process list. Avoid pasting a password directly onto the command line.
+
+#### macOS
+
+Omitting the value after `-w` makes `security` prompt for it:
+
+```bash
+security add-generic-password -s "transkribus-mcp" -a "user" -w
+security add-generic-password -s "transkribus-mcp" -a "password" -w
+```
+
+#### Windows (PowerShell)
+
+`cmdkey` can only take the value as a command-line argument, which exposes it in
+the process list. Read it from a hidden prompt instead and write it straight into
+Windows Credential Manager via `CredWrite`. The credential's target name is
+`<account>.<service>` — `user.transkribus-mcp` and `password.transkribus-mcp`
+for the default service — which is exactly what the server reads back:
+
+```powershell
+Add-Type -Namespace TranskribusKeyring -Name Native -MemberDefinition @'
+[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+public struct CREDENTIAL {
+    public uint Flags;
+    public uint Type;
+    [MarshalAs(UnmanagedType.LPWStr)] public string TargetName;
+    [MarshalAs(UnmanagedType.LPWStr)] public string Comment;
+    public System.Runtime.InteropServices.ComTypes.FILETIME LastWritten;
+    public uint CredentialBlobSize;
+    public IntPtr CredentialBlob;
+    public uint Persist;
+    public uint AttributeCount;
+    public IntPtr Attributes;
+    [MarshalAs(UnmanagedType.LPWStr)] public string TargetAlias;
+    [MarshalAs(UnmanagedType.LPWStr)] public string UserName;
+}
+[DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+public static extern bool CredWriteW(ref CREDENTIAL credential, uint flags);
+'@
+
+function Set-TranskribusCredential {
+    param([Parameter(Mandatory)][string]$Account, [Parameter(Mandatory)][string]$Prompt)
+    $secure = Read-Host -AsSecureString $Prompt
+    $blob = [Runtime.InteropServices.Marshal]::SecureStringToCoTaskMemUnicode($secure)
+    try {
+        $cred = New-Object TranskribusKeyring.Native+CREDENTIAL
+        $cred.Type = 1                                  # CRED_TYPE_GENERIC
+        $cred.Persist = 2                               # CRED_PERSIST_LOCAL_MACHINE
+        $cred.TargetName = "$Account.transkribus-mcp"   # "<account>.<service>"
+        $cred.UserName = $Account
+        $cred.CredentialBlob = $blob
+        $cred.CredentialBlobSize = $secure.Length * 2   # UTF-16 bytes, no terminator
+        if (-not [TranskribusKeyring.Native]::CredWriteW([ref]$cred, 0)) {
+            throw "CredWrite failed (Win32 error $([Runtime.InteropServices.Marshal]::GetLastWin32Error()))"
+        }
+        Write-Host "Stored '$Account' in Windows Credential Manager."
+    } finally {
+        [Runtime.InteropServices.Marshal]::ZeroFreeCoTaskMemUnicode($blob)
+        $secure.Dispose()
+        Remove-Variable secure, blob
+    }
+}
+
+Set-TranskribusCredential -Account 'user' -Prompt 'Transkribus user (e-mail)'
+Set-TranskribusCredential -Account 'password' -Prompt 'Transkribus password'
+```
+
+> Using a custom `TRANSKRIBUS_KEYRING_SERVICE` (e.g. `acme`)? Set `TargetName` to
+> `user.acme` / `password.acme` to match — the server looks each value up under
+> `<account>.<service>`.
+
+#### Linux
+
+```bash
+secret-tool store --label="Transkribus user" service transkribus-mcp username user
+secret-tool store --label="Transkribus password" service transkribus-mcp username password
+# (each prompts for the value)
+```
+
+Once stored, MCP config files need no credentials at all.
+
+### Use environment variables instead
 
 ```bash
 export TRANSKRIBUS_USER=your-email@example.com
 export TRANSKRIBUS_PASSWORD=your-password
 ```
 
-The server will automatically log in and manage the session.
-
-### Option 2: Direct session ID
+Or, with a session you already hold:
 
 ```bash
 export TRANSKRIBUS_SESSION_ID=your-session-id
 ```
 
-Use this if you already have a valid session from the Transkribus platform.
+### Environment variables
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `TRANSKRIBUS_USER` | — | Account e-mail; used when the keyring has no `user` entry for the configured service |
+| `TRANSKRIBUS_PASSWORD` | — | Account password; used when the keyring has no `password` entry |
+| `TRANSKRIBUS_SESSION_ID` | — | An existing session id; used when the keyring has no `session-id` entry |
+| `TRANSKRIBUS_KEYRING_SERVICE` | `transkribus-mcp` | Keyring service name. Override to connect to several Transkribus accounts at once — run one server instance per account, each with its own service name |
 
 ## Entry Points
 
@@ -58,7 +166,58 @@ Use split servers to reduce context size — pick only the splits you need.
 
 ## Claude Code
 
-Add to `~/.claude/settings.json`:
+Add to `~/.claude/settings.json`. With the credentials in the OS keyring under
+the default service name (recommended), no `env` key is needed:
+
+```json
+{
+  "mcpServers": {
+    "transkribus": {
+      "command": "npx",
+      "args": ["-y", "@lazyants/transkribus-mcp-server"]
+    }
+  }
+}
+```
+
+Or use split servers (pick the splits you need):
+
+```json
+{
+  "mcpServers": {
+    "transkribus-collections": {
+      "command": "npx",
+      "args": ["-y", "-p", "@lazyants/transkribus-mcp-server", "transkribus-mcp-collections"]
+    },
+    "transkribus-transcription": {
+      "command": "npx",
+      "args": ["-y", "-p", "@lazyants/transkribus-mcp-server", "transkribus-mcp-transcription"]
+    }
+  }
+}
+```
+
+Two Transkribus accounts at once — one instance per account, each pointed at its
+own keyring service name:
+
+```json
+{
+  "mcpServers": {
+    "transkribus-team-a": {
+      "command": "npx",
+      "args": ["-y", "@lazyants/transkribus-mcp-server"],
+      "env": { "TRANSKRIBUS_KEYRING_SERVICE": "transkribus-team-a" }
+    },
+    "transkribus-team-b": {
+      "command": "npx",
+      "args": ["-y", "@lazyants/transkribus-mcp-server"],
+      "env": { "TRANSKRIBUS_KEYRING_SERVICE": "transkribus-team-b" }
+    }
+  }
+}
+```
+
+Without a keyring, pass the credentials in `env` instead:
 
 ```json
 {
@@ -75,34 +234,23 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
-Or use split servers (pick the splits you need):
+## Claude Desktop
+
+Add to `claude_desktop_config.json`. With the credentials in the OS keyring
+(recommended — assumes the default service name `transkribus-mcp`):
 
 ```json
 {
   "mcpServers": {
-    "transkribus-collections": {
+    "transkribus": {
       "command": "npx",
-      "args": ["-y", "-p", "@lazyants/transkribus-mcp-server", "transkribus-mcp-collections"],
-      "env": {
-        "TRANSKRIBUS_USER": "your-email@example.com",
-        "TRANSKRIBUS_PASSWORD": "your-password"
-      }
-    },
-    "transkribus-transcription": {
-      "command": "npx",
-      "args": ["-y", "-p", "@lazyants/transkribus-mcp-server", "transkribus-mcp-transcription"],
-      "env": {
-        "TRANSKRIBUS_USER": "your-email@example.com",
-        "TRANSKRIBUS_PASSWORD": "your-password"
-      }
+      "args": ["-y", "@lazyants/transkribus-mcp-server"]
     }
   }
 }
 ```
 
-## Claude Desktop
-
-Add to `claude_desktop_config.json`:
+Without a keyring:
 
 ```json
 {
@@ -121,9 +269,9 @@ Add to `claude_desktop_config.json`:
 
 ## Security
 
+- **Use the OS keyring** to keep your password out of config files and shell history entirely (see [Configuration](#configuration))
 - **Never commit your credentials** to version control
-- Use environment variables or a `.env` file (excluded via `.gitignore`)
-- Session IDs expire — prefer username/password for long-running setups
+- Session IDs expire — prefer a user name and password for long-running setups; a session id alone cannot be renewed after a 401
 
 ## Disclaimer
 

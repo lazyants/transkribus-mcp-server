@@ -10,6 +10,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Credentials are read from the OS keyring before the environment, so an MCP
+  client config file no longer has to carry the Transkribus account password in
+  clear text. One entry per value under a configurable service name
+  (`transkribus-mcp` by default, `TRANSKRIBUS_KEYRING_SERVICE` to override),
+  accounts `user`, `password` and `session-id`; each value falls back to its
+  existing environment variable independently, so current setups keep working
+  unchanged. The keyring is optional in every sense: `@napi-rs/keyring` is an
+  `optionalDependency` loaded lazily, and an absent, locked or slow store
+  degrades to the environment — bounded at 5 seconds, because a hung credential
+  store would otherwise stall the MCP stdio handshake. README and SECURITY.md
+  document the setup commands and the resolution order. Ported from
+  lexware-mcp-server 4.2.0 (#44).
+
+### Fixed
+
+- The CI audit gate went red with no change in this repository: new advisories
+  extended past the `fast-uri` and `qs` override floors. Both move up within the
+  range their dependents already declare — `fast-uri` `^3.1.7`, `qs` `^6.16.0` —
+  and the `PINS` table in `overrides.test.ts` moves with them.
+
 ## [3.1.0] — 2026-08-20
 
 ### Added
