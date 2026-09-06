@@ -31,9 +31,10 @@ export interface ResolvedCredentials {
   password: string | null;
 }
 
+// Each source supplies whichever of the three values it happens to hold.
 interface CredentialSources {
-  keyring: { user?: string | null; password?: string | null; sessionId?: string | null };
-  env: { user?: string | null; password?: string | null; sessionId?: string | null };
+  keyring: Partial<ResolvedCredentials>;
+  env: Partial<ResolvedCredentials>;
 }
 
 /**
@@ -45,13 +46,12 @@ interface CredentialSources {
  * without the native module; the impure reads live in resolveCredentials().
  */
 export function selectCredentials({ keyring, env }: CredentialSources): ResolvedCredentials {
-  const pick = (fromKeyring?: string | null, fromEnv?: string | null): string | null =>
-    fromKeyring || fromEnv || null;
-
+  // An entry that exists but holds an empty string falls through to the
+  // environment rather than authenticating as the empty user.
   const resolved: ResolvedCredentials = {
-    sessionId: pick(keyring.sessionId, env.sessionId),
-    user: pick(keyring.user, env.user),
-    password: pick(keyring.password, env.password),
+    sessionId: keyring.sessionId || env.sessionId || null,
+    user: keyring.user || env.user || null,
+    password: keyring.password || env.password || null,
   };
 
   if (resolved.sessionId) return resolved;
@@ -71,8 +71,6 @@ export function selectCredentials({ keyring, env }: CredentialSources): Resolved
 }
 
 type AsyncEntryConstructor = typeof import('@napi-rs/keyring').AsyncEntry;
-
-const NO_KEYRING_VALUES = { user: null, password: null, sessionId: null } as const;
 
 /** Resolve `work` normally, or `null` once `ms` has elapsed — the bound that
  *  actually holds when a native keyring read ignores its abort signal. The
@@ -119,7 +117,7 @@ async function readKeyring(service: string): Promise<ResolvedCredentials> {
   try {
     ({ AsyncEntry } = await import('@napi-rs/keyring'));
   } catch {
-    return { ...NO_KEYRING_VALUES };
+    return { user: null, password: null, sessionId: null };
   }
 
   const signal = AbortSignal.timeout(KEYRING_TIMEOUT_MS);
