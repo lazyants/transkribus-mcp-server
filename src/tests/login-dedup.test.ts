@@ -52,44 +52,41 @@ function ok(config: Record<string, unknown>, data: unknown): Record<string, unkn
   return { status: 200, statusText: 'OK', headers: {}, config, data };
 }
 
-describe('in-flight login de-duplication (#39)', () => {
-  const originalEnv = {
-    user: process.env.TRANSKRIBUS_USER,
-    password: process.env.TRANSKRIBUS_PASSWORD,
-    session: process.env.TRANSKRIBUS_SESSION_ID,
-  };
+// A login the test holds open, so several callers are provably in flight at the
+// same time before any of them settles.
+function loginGate(): { wait: Promise<void>; release: () => void } {
+  let release!: () => void;
+  const wait = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { wait, release };
+}
 
+describe('in-flight login de-duplication (#39)', () => {
   beforeEach(() => {
     vi.resetModules();
-    process.env.TRANSKRIBUS_USER = 'test-user';
-    process.env.TRANSKRIBUS_PASSWORD = 'test-password';
-    delete process.env.TRANSKRIBUS_SESSION_ID;
+    vi.stubEnv('TRANSKRIBUS_USER', 'test-user');
+    vi.stubEnv('TRANSKRIBUS_PASSWORD', 'test-password');
+    // Undefined removes the key outright, so ensureSession() cannot short-circuit.
+    vi.stubEnv('TRANSKRIBUS_SESSION_ID', undefined);
   });
 
   afterEach(() => {
-    if (originalEnv.user !== undefined) process.env.TRANSKRIBUS_USER = originalEnv.user;
-    else delete process.env.TRANSKRIBUS_USER;
-    if (originalEnv.password !== undefined) process.env.TRANSKRIBUS_PASSWORD = originalEnv.password;
-    else delete process.env.TRANSKRIBUS_PASSWORD;
-    if (originalEnv.session !== undefined) process.env.TRANSKRIBUS_SESSION_ID = originalEnv.session;
-    else delete process.env.TRANSKRIBUS_SESSION_ID;
+    vi.unstubAllEnvs();
   });
 
   it('cold start: five concurrent tool calls share ONE /auth/login', async () => {
     let loginHits = 0;
     let protectedHits = 0;
-    let releaseLogin: () => void = () => {};
-    const loginGate = new Promise<void>((resolve) => {
-      releaseLogin = resolve;
-    });
+    const gate = loginGate();
 
     setAdapter(async (config) => {
       if (config.url === '/auth/login') {
         loginHits++;
-        // Hold the login open so every concurrent caller is genuinely in
-        // flight at the same time — without this the first one could settle
-        // before the others even ask, and the test would pass vacuously.
-        await loginGate;
+        // All five callers reach loginOnce() in the same synchronous turn — the
+        // gate is not what creates the overlap here, it just keeps the overlap
+        // from depending on that scheduling detail.
+        await gate.wait;
         return ok(config, { sessionId: 'fresh-session-id' });
       }
       protectedHits++;
@@ -101,7 +98,7 @@ describe('in-flight login de-duplication (#39)', () => {
       Array.from({ length: 5 }, () => transkribusRequest('GET', '/collections'))
     );
     await vi.waitFor(() => expect(loginHits).toBeGreaterThan(0));
-    releaseLogin();
+    gate.release();
 
     expect(await calls).toEqual(Array.from({ length: 5 }, () => ({ ok: true })));
     expect(loginHits).toBe(1);
@@ -109,18 +106,17 @@ describe('in-flight login de-duplication (#39)', () => {
   });
 
   it('three concurrent 401s share ONE re-login', async () => {
-    process.env.TRANSKRIBUS_SESSION_ID = 'stale-session-id';
+    vi.stubEnv('TRANSKRIBUS_SESSION_ID', 'stale-session-id');
     let loginHits = 0;
     let protectedHits = 0;
-    let releaseLogin: () => void = () => {};
-    const loginGate = new Promise<void>((resolve) => {
-      releaseLogin = resolve;
-    });
+    const gate = loginGate();
 
     setAdapter(async (config) => {
       if (config.url === '/auth/login') {
         loginHits++;
-        await loginGate;
+        // Here the gate IS load-bearing: the three 401s arrive asynchronously,
+        // so without it the memo could clear between them.
+        await gate.wait;
         return ok(config, { sessionId: 'fresh-session-id' });
       }
       protectedHits++;
@@ -135,7 +131,7 @@ describe('in-flight login de-duplication (#39)', () => {
     // Hold the re-login pending until all three 401 handlers have entered it,
     // so the overlap the memo is supposed to collapse actually exists.
     await vi.waitFor(() => expect(protectedHits).toBe(3));
-    releaseLogin();
+    gate.release();
 
     expect(await calls).toEqual(Array.from({ length: 3 }, () => ({ ok: true })));
     expect(loginHits).toBe(1);
@@ -145,16 +141,13 @@ describe('in-flight login de-duplication (#39)', () => {
   it('a failed login rejects the whole burst and does not poison the memo', async () => {
     let loginHits = 0;
     let loginShouldFail = true;
-    let releaseLogin: () => void = () => {};
-    const loginGate = new Promise<void>((resolve) => {
-      releaseLogin = resolve;
-    });
+    const gate = loginGate();
 
     setAdapter(async (config) => {
       if (config.url === '/auth/login') {
         loginHits++;
         if (loginShouldFail) {
-          await loginGate;
+          await gate.wait;
           throw make401(config);
         }
         return ok(config, { sessionId: 'fresh-session-id' });
@@ -167,7 +160,7 @@ describe('in-flight login de-duplication (#39)', () => {
       Array.from({ length: 3 }, () => transkribusRequest('GET', '/collections'))
     );
     await vi.waitFor(() => expect(loginHits).toBeGreaterThan(0));
-    releaseLogin();
+    gate.release();
 
     const settled = await burst;
     expect(settled.map((r) => r.status)).toEqual(['rejected', 'rejected', 'rejected']);
