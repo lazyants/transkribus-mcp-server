@@ -225,6 +225,73 @@ describe('Metagrapho (Processing API) client', () => {
     expect(grants).toEqual(['password', 'refresh_token', 'password']);
   });
 
+  it('a late 401 for an already-replaced token does not force another refresh', async () => {
+    // The ordering has to be forced, or the two requests simply run to
+    // completion one after the other and the race never happens (an earlier
+    // version of this test passed with the guard removed, i.e. proved nothing).
+    // Sequence built below: both requests go out on token 1; #1 is rejected and
+    // refreshes to token 2 and replays successfully; ONLY THEN is #2's 401 for
+    // the dead token 1 delivered. Without the staleness guard that late 401
+    // discards token 2 and forces a third exchange.
+    let resolveFirstReplay!: () => void;
+    const firstReplayDone = new Promise<void>((r) => { resolveFirstReplay = r; });
+
+    let tokenCalls = 0;
+    let apiCalls = 0;
+
+    setAdapter(async (cfg) => {
+      if (isTokenRequest(cfg)) {
+        tokenCalls += 1;
+        return ok(cfg, { access_token: `access-${tokenCalls}`, refresh_token: 'r', expires_in: 300 });
+      }
+
+      apiCalls += 1;
+      const index = apiCalls;
+      const bearer = String((cfg.headers as Record<string, unknown>)['Authorization']);
+
+      if (index === 1) return fail(cfg, 401, { error: 'expired' });        // first, on token 1
+      if (index === 2) {                                                    // second, also token 1
+        await firstReplayDone;                                              // held until token 2 exists
+        return fail(cfg, 401, { error: 'expired' });
+      }
+      if (index === 3) {                                                    // replay of the first
+        expect(bearer).toBe('Bearer access-2');
+        resolveFirstReplay();
+        return ok(cfg, { processId: 9, status: 'FINISHED' });
+      }
+      return ok(cfg, { processId: 9, status: 'FINISHED' });                 // replay of the second
+    });
+
+    const { metagraphoRequest } = await importService();
+    await Promise.all([
+      metagraphoRequest('GET', '/processes/9'),
+      metagraphoRequest('GET', '/processes/9'),
+    ]);
+
+    // One initial exchange + exactly one refresh. Three would mean the late 401
+    // threw away the token the first replay had just obtained.
+    expect(tokenCalls).toBe(2);
+    expect(apiCalls).toBe(4); // two originals, two replays
+  });
+
+  it('honours a numeric Retry-After, an HTTP-date, and clamps absurd values', async () => {
+    const { __testing } = (await importService()) as unknown as {
+      __testing: { retryDelayMs: (header: unknown, retryCount: number) => number };
+    };
+    expect(__testing.retryDelayMs('2', 0)).toBe(2000);
+    // A date form must not be mangled by parseInt into a tiny or bogus delay.
+    const inTwoSeconds = new Date(Date.now() + 2000).toUTCString();
+    expect(__testing.retryDelayMs(inTwoSeconds, 0)).toBeGreaterThan(500);
+    expect(__testing.retryDelayMs(inTwoSeconds, 0)).toBeLessThanOrEqual(2000);
+    // A day-long wait, and a value past the 32-bit timer range (which would
+    // otherwise fire immediately), both clamp to the cap.
+    expect(__testing.retryDelayMs('86400', 0)).toBe(60_000);
+    expect(__testing.retryDelayMs('999999999', 0)).toBe(60_000);
+    // Unusable header falls back to exponential backoff.
+    expect(__testing.retryDelayMs('not-a-date', 2)).toBe(4000);
+    expect(__testing.retryDelayMs(undefined, 1)).toBe(2000);
+  });
+
   it('requests XML with Accept: application/xml and returns it verbatim', async () => {
     const xml = '<?xml version="1.0"?><PcGts><Page/></PcGts>';
     let apiCfg: Record<string, unknown> | null = null;

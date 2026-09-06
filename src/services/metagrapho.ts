@@ -134,8 +134,12 @@ function storeTokens(data: unknown, context: string): string {
   }
   accessToken = token;
   refreshToken = typeof body.refresh_token === 'string' ? body.refresh_token : null;
-  // A non-numeric or absent expires_in leaves expiresAt at 0, which simply means
-  // "treat as expired" — the next call re-acquires rather than trusting a guess.
+  // A non-numeric or absent expires_in leaves expiresAt at 0, which means "no
+  // known expiry": the token is used until the server rejects it, and the 401
+  // branch then re-acquires. Re-acquiring on EVERY call instead would spend a
+  // token exchange per request to avoid a failure the 401 path already handles
+  // for free. (Keycloak always sends expires_in, so this is the unreachable-in-
+  // practice branch either way.)
   const lifetime = typeof body.expires_in === 'number' ? body.expires_in : 0;
   expiresAt = lifetime > 0 ? Date.now() + lifetime * 1000 - TOKEN_EXPIRY_SKEW_MS : 0;
   return token;
@@ -211,17 +215,68 @@ async function ensureToken(): Promise<string> {
   return tokenInFlight;
 }
 
-/** Drop the cached access token so the next call re-acquires one. The refresh
- *  token is kept: a 401 on the API means the ACCESS token is stale, which is
- *  exactly what a refresh is for. */
-function invalidateAccessToken(): void {
+/**
+ * Drop the cached access token so the next call re-acquires one, but ONLY if the
+ * token that just got rejected is still the cached one. The refresh token is
+ * kept: a 401 on the API means the ACCESS token is stale, which is exactly what
+ * a refresh is for.
+ *
+ * The `staleToken` guard matters under concurrency. Two requests go out with
+ * token A; the first gets a 401 and refreshes to B; the second's 401 — for the
+ * same dead token A — arrives afterwards. Invalidating unconditionally would
+ * throw away the perfectly good B and force a third exchange, and with enough
+ * in-flight requests that turns into refresh thrash. Comparing first makes the
+ * late 401 a no-op, which is what it is.
+ */
+function invalidateAccessToken(staleToken: string | null): void {
+  if (staleToken !== null && staleToken !== accessToken) return;
   accessToken = null;
   expiresAt = 0;
+}
+
+/** The bearer value a request actually carried, for the staleness comparison
+ *  above. Absent or malformed header means "cannot tell" — the caller then
+ *  invalidates unconditionally, the previous behaviour. */
+function bearerOf(headers: unknown): string | null {
+  if (!headers || typeof headers !== 'object') return null;
+  const value = (headers as Record<string, unknown>)['Authorization'];
+  if (typeof value !== 'string' || !value.startsWith('Bearer ')) return null;
+  return value.slice('Bearer '.length);
 }
 
 // ---------------------------------------------------------------------------
 // API client
 // ---------------------------------------------------------------------------
+
+/** Longest a 429 retry will wait. A server is free to send `Retry-After: 86400`,
+ *  and honouring that would hang a tool call for a day; values beyond Node's
+ *  32-bit timer range fire IMMEDIATELY instead, which is the opposite of
+ *  backing off. Capping handles both. */
+const MAX_RETRY_DELAY_MS = 60_000;
+
+/**
+ * Milliseconds to wait before retrying a 429. RFC 9110 allows `Retry-After` to
+ * be either delta-seconds or an HTTP-date; `parseInt` on a date string yields
+ * NaN (or, worse, the leading day number of a date like "Wed, 21 Oct 2015…"),
+ * so both forms are parsed explicitly. Anything unusable falls back to
+ * exponential backoff. The result is always clamped to MAX_RETRY_DELAY_MS.
+ */
+function retryDelayMs(header: unknown, retryCount: number): number {
+  const fallback = Math.pow(2, retryCount) * 1000;
+  let delay = fallback;
+
+  if (typeof header === 'string') {
+    const trimmed = header.trim();
+    if (/^\d+$/.test(trimmed)) {
+      delay = Number(trimmed) * 1000;
+    } else {
+      const at = Date.parse(trimmed);
+      if (Number.isFinite(at)) delay = Math.max(0, at - Date.now());
+    }
+  }
+
+  return Math.min(delay, MAX_RETRY_DELAY_MS);
+}
 
 /** Bounded 429 retry, local to this module. The legacy client's equivalent
  *  rejects by chaining the sanitized AxiosError as `cause`, which is exactly
@@ -240,11 +295,7 @@ function attachRateLimitRetry(client: AxiosInstance): void {
         return Promise.reject(new Error('Processing API request failed: rate limited after maximum retries'));
       }
 
-      const retryAfter = error.response.headers['retry-after'];
-      const parsed = typeof retryAfter === 'string' ? parseInt(retryAfter, 10) : NaN;
-      const delay = Number.isFinite(parsed) && parsed >= 0
-        ? parsed * 1000
-        : Math.pow(2, retryCount) * 1000;
+      const delay = retryDelayMs(error.response.headers['retry-after'], retryCount);
 
       state.__retryCount = retryCount + 1;
       console.error(
@@ -286,7 +337,7 @@ function createClient(): AxiosInstance {
       if (state.__authRetried) return Promise.reject(error);
       state.__authRetried = true;
 
-      invalidateAccessToken();
+      invalidateAccessToken(bearerOf(config.headers));
       try {
         await ensureToken();
       } catch (authErr) {
@@ -339,6 +390,10 @@ export async function metagraphoRequestText(path: string): Promise<string> {
     throw metagraphoError('Processing API request', err);
   }
 }
+
+/** Test-only surface for the pure helpers that have no other seam. Exported as
+ *  a single namespace so it is obvious at a glance that nothing here is API. */
+export const __testing = { retryDelayMs };
 
 /** Test-only: drop every cached token and client so each test starts clean. */
 export function resetMetagraphoStateForTests(): void {
