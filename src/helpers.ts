@@ -20,19 +20,30 @@ export function formatResponse(data: unknown): CallToolResult {
   return result;
 }
 
+/** Arguments a tool handler receives. The MCP SDK has already validated them
+ *  against the tool's Zod schema, so the wrappers below never inspect them. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function handleToolRequest(fn: (params: any) => Promise<unknown>) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return async (params: any) => {
+type ToolParams = any;
+
+/** Shared body of the two wrappers below: run the call, format whatever it
+ *  resolved to, and turn any throw into a logged isError result. */
+function toolHandler<T>(
+  fn: (params: ToolParams) => Promise<T>,
+  format: (value: T) => CallToolResult
+) {
+  return async (params: ToolParams): Promise<CallToolResult> => {
     try {
-      const data = await fn(params);
-      return formatResponse(data);
+      return format(await fn(params));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[transkribus-mcp] Tool error: ${message}`);
       return toolError(err);
     }
   };
+}
+
+export function handleToolRequest(fn: (params: ToolParams) => Promise<unknown>) {
+  return toolHandler(fn, formatResponse);
 }
 
 /**
@@ -42,17 +53,6 @@ export function handleToolRequest(fn: (params: any) => Promise<unknown>) {
  * string is not a Record, would set no `structuredContent` either. This emits
  * the text verbatim.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function handleTextToolRequest(fn: (params: any) => Promise<string>) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return async (params: any) => {
-    try {
-      const text = await fn(params);
-      return { content: [{ type: 'text' as const, text }] };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error(`[transkribus-mcp] Tool error: ${message}`);
-      return toolError(err);
-    }
-  };
+export function handleTextToolRequest(fn: (params: ToolParams) => Promise<string>) {
+  return toolHandler(fn, (text) => ({ content: [{ type: 'text', text }] }));
 }

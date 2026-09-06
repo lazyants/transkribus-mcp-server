@@ -1,4 +1,4 @@
-import axios, { AxiosError, AxiosInstance, Method } from 'axios';
+import axios, { AxiosError, AxiosInstance, AxiosRequestConfig, Method } from 'axios';
 import {
   MAX_RETRIES,
   METAGRAPHO_API_BASE,
@@ -360,35 +360,37 @@ function getClient(): AxiosInstance {
   return clientInstance;
 }
 
-/** JSON request against the Metagrapho API. */
-export async function metagraphoRequest<T = unknown>(
-  method: Method,
-  path: string,
-  data?: unknown
-): Promise<T> {
+/** The single request path, so every failure leaves through metagraphoError
+ *  with the same context and no upstream detail can escape by another route. */
+async function request<T>(config: AxiosRequestConfig): Promise<T> {
   try {
-    const response = await getClient().request<T>({ method, url: path, data });
+    const response = await getClient().request<T>(config);
     return response.data;
   } catch (err) {
     throw metagraphoError('Processing API request', err);
   }
 }
 
+/** JSON request against the Metagrapho API. */
+export async function metagraphoRequest<T = unknown>(
+  method: Method,
+  path: string,
+  data?: unknown
+): Promise<T> {
+  return request<T>({ method, url: path, data });
+}
+
 /** XML request against the Metagrapho API. The PAGE and ALTO endpoints return
  *  `application/xml`, so both the Accept header and axios' response parsing have
  *  to be overridden — the client defaults ask for and expect JSON. */
 export async function metagraphoRequestText(path: string): Promise<string> {
-  try {
-    const response = await getClient().request<string>({
-      method: 'GET',
-      url: path,
-      responseType: 'text',
-      headers: { Accept: 'application/xml' },
-    });
-    return typeof response.data === 'string' ? response.data : String(response.data);
-  } catch (err) {
-    throw metagraphoError('Processing API request', err);
-  }
+  const data = await request<string>({
+    method: 'GET',
+    url: path,
+    responseType: 'text',
+    headers: { Accept: 'application/xml' },
+  });
+  return String(data);
 }
 
 /** Test-only surface for the pure helpers that have no other seam. Exported as
