@@ -2,6 +2,7 @@ import axios, { AxiosInstance, AxiosError, Method } from 'axios';
 import { TRANSKRIBUS_API_BASE, MAX_RETRIES, REQUEST_TIMEOUT } from '../constants.js';
 
 let sessionId: string | null = null;
+let loginPromise: Promise<string> | null = null;
 let clientInstance: AxiosInstance | null = null;
 let loginClientInstance: AxiosInstance | null = null;
 
@@ -65,6 +66,25 @@ async function login(): Promise<string> {
   if (response.data?.sessionId) return response.data.sessionId;
 
   throw new Error('Login succeeded but no JSESSIONID found in response');
+}
+
+/** #39: de-duplicate concurrent logins. Both entry points below can be reached
+ *  by several callers at once — N cold-start tool calls all find `sessionId`
+ *  null, and N in-flight requests can all take a 401 — and each one used to
+ *  fire its own POST /auth/login. They now share the single in-flight promise.
+ *
+ *  The memo is the promise RETURNED by `.finally()`, not the bare `login()`
+ *  promise: returning the cleanup chain is what propagates a rejection to every
+ *  awaiting caller instead of leaving it unhandled. It is cleared on settle —
+ *  failure included — so a failed login never poisons the memo for later
+ *  callers. A cleanup can only ever clear its own memo: the next login is
+ *  started only once this one has settled and cleared. */
+function loginOnce(): Promise<string> {
+  if (loginPromise) return loginPromise;
+  loginPromise = login().finally(() => {
+    loginPromise = null;
+  });
+  return loginPromise;
 }
 
 function baseClientConfig(): Record<string, unknown> {
@@ -206,7 +226,7 @@ function createClient(): AxiosInstance {
       (config as unknown as Record<string, unknown>).__authRetried = true;
 
       try {
-        sessionId = await login();
+        sessionId = await loginOnce();
         console.error('[transkribus-mcp] Re-authenticated after 401');
         return client.request(config);
       } catch (loginErr) {
@@ -255,7 +275,7 @@ async function ensureSession(): Promise<void> {
     return;
   }
 
-  sessionId = await login();
+  sessionId = await loginOnce();
   console.error('[transkribus-mcp] Authenticated successfully');
 }
 
