@@ -44,6 +44,19 @@ vi.mock('axios', async (importOriginal) => {
   };
 });
 
+// The service module reads the OS keyring before the environment, and these
+// tests run on fake timers: a real native read resolves in real time, which
+// advanceTimersByTimeAsync does not wait for, so the first request would not
+// have been issued yet when the assertions run. Stub the module — it also keeps
+// a developer's own stored credentials from overriding the env vars below.
+vi.mock('@napi-rs/keyring', () => ({
+  AsyncEntry: class {
+    getPassword(): Promise<string | undefined> {
+      return Promise.resolve(undefined);
+    }
+  },
+}));
+
 // An adapter that RESOLVES a 429 response never enters axios's onRejected chain —
 // settling is the adapter's job. Reject with a genuine AxiosError carrying
 // `.config` and `.response.status` so the interceptor's guards pass. Header keys
