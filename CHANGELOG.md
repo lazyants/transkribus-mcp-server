@@ -22,7 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `index`/`nValues` pagination blocks are coerced too, and now come from
   `src/schemas/common.ts` rather than being copy-pasted. Their existing default
   values are unchanged: these parameters go straight into the query string, so
-  `nValues=0` and an omitted `nValues` are different requests. (#33)
+  `nValues=0` and an omitted `nValues` are different requests. Numeric ARRAY
+  parameters are covered too: five required ones (`userIds`, `documentIds` ×2,
+  `pageIds` ×2) accepted `[1, 2]` but rejected `["1", "2"]`, which fails a
+  string-serializing client exactly as a bare number does. (#33)
 - 16 parameters applied a default the server never published in `tools/list`,
   in `models.ts` and `collections-pages.ts`. Zod 4 renders a `z.preprocess` pipe
   — which is every `intCoerce` parameter — from its input leg when emitting JSON
@@ -43,9 +46,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `UserIdSchema`, and `paginationIndex`/`paginationNValues`/`paginationWithDefaults`
   in `src/schemas/common.ts`.
 - `src/tests/schema-coercion.test.ts`, two ratchets over the whole registered tool
-  surface: no required numeric parameter may reject its own string form, and every
-  default the server applies must be advertised in `tools/list`. Both scan the live
-  schemas, so a new tool that reintroduces either defect fails CI by name.
+  surface: no required numeric parameter may reject its own string form — bare or
+  inside an array — and every default the server applies must be advertised in
+  `tools/list`. Both scan the live schemas, so a new tool that reintroduces either
+  defect fails CI by name.
 
 ### Known limitation
 

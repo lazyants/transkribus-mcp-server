@@ -13,7 +13,8 @@ import { fullEntry, registerAll } from '../entries.js';
 // `intCoerce` (src/schemas/common.ts) exists so that "3" is accepted wherever 3
 // is. v2.0.1 applied it to 191 params and #33 swept up the 24 required
 // stragglers. A newly added tool that hand-rolls `z.number()` for a REQUIRED
-// param, or for index/nValues, fails here with the offending tool.param named.
+// param — bare or inside an array — or for index/nValues, fails here with the
+// offending tool.param named.
 //
 // ADVERTISED DEFAULTS, in the second describe block below: a param whose default
 // the server applies but never publishes.
@@ -49,10 +50,21 @@ function harvestNumbers(node: unknown, into: number[] = []): number[] {
   return into;
 }
 
+// A numeric value reaches a tool either bare or inside an array, and both are
+// broken the same way for a string-serializing client — `["1","2"]` rejected
+// where `[1,2]` is accepted makes the tool just as uncallable. Probing only the
+// bare shape skipped five required array parameters entirely.
+const SHAPES = [
+  { name: 'scalar', wrap: (v: number | string): unknown => v },
+  { name: 'array', wrap: (v: number | string): unknown => [v] },
+];
+
 interface NumericField {
   tool: string;
   param: string;
   required: boolean;
+  /** Shapes ('scalar' / 'array') in which this param accepted a number. */
+  shapes: string[];
   /** Probed values the field accepts but whose string form it rejects — the defect. */
   rejectedAsString: number[];
 }
@@ -73,18 +85,20 @@ function numericFields(tools: RegisteredTools): NumericField[] {
     for (const [param, prop] of Object.entries(emitted.properties ?? {})) {
       const field = shape[param];
       if (!field) continue;
-      const candidates = new Set([...PROBE_LADDER, ...harvestNumbers(prop)]);
-      const accepted = [...candidates].filter((value) => field.safeParse(value).success);
-      if (accepted.length === 0) continue;
-      fields.push({
-        tool,
-        param,
-        required: required.has(param),
+      const candidates = [...new Set([...PROBE_LADDER, ...harvestNumbers(prop)])];
+      const shapes: string[] = [];
+      const rejectedAsString: number[] = [];
+      for (const { name, wrap } of SHAPES) {
         // EVERY accepted value must survive its own string form, not just the
         // first: a union whose sentinel branch does not coerce is still broken
         // for a client that can only send strings.
-        rejectedAsString: accepted.filter((value) => !field.safeParse(String(value)).success),
-      });
+        const accepted = candidates.filter((value) => field.safeParse(wrap(value)).success);
+        if (accepted.length === 0) continue;
+        shapes.push(name);
+        rejectedAsString.push(...accepted.filter((value) => !field.safeParse(wrap(String(value))).success));
+      }
+      if (shapes.length === 0) continue;
+      fields.push({ tool, param, required: required.has(param), shapes, rejectedAsString });
     }
   }
   return fields;
@@ -118,9 +132,11 @@ describe('string-encoded numbers are accepted wherever a number is (issue #33)',
     expect(Object.keys(tools).length).toBeGreaterThan(250);
   });
 
-  it('found a plausible number of numeric params', () => {
+  it('found a plausible number of numeric params, in both shapes', () => {
     expect(fields.filter((f) => f.required).length).toBeGreaterThan(300);
     expect(fields.filter(isPagination).length).toBeGreaterThan(100);
+    // Without this the array probing could match nothing and go unnoticed.
+    expect(fields.filter((f) => f.shapes.includes('array')).length).toBeGreaterThan(5);
   });
 
   it('no REQUIRED numeric param rejects its own string form', () => {

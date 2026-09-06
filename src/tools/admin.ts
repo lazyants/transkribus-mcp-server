@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { transkribusRequest } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
-import { IdSchema, PathSegmentSchema, pathSeg } from '../schemas/common.js';
+import { IdSchema, PathSegmentSchema, UserIdSchema, pathSeg } from '../schemas/common.js';
 
 export function registerAdminTools(server: McpServer): void {
   // 1. POST /admin/index/models
@@ -112,7 +112,7 @@ export function registerAdminTools(server: McpServer): void {
       description: 'Authorize specific users to run a job implementation.',
       inputSchema: z.object({
         jobImpl: PathSegmentSchema.describe('Job implementation identifier'),
-        userIds: z.array(z.number().int().positive()).describe('List of user IDs to authorize'),
+        userIds: z.array(UserIdSchema).describe('List of user IDs to authorize'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },

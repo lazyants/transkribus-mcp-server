@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { transkribusRequest } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
-import { IdSchema, PaginationParams, intCoerce } from '../schemas/common.js';
+import { DocIdSchema, IdSchema, PaginationParams, intCoerce } from '../schemas/common.js';
 
 const LabelIdSchema = intCoerce(z.number().int().positive()).describe('Label ID');
 
@@ -104,7 +104,7 @@ export function registerLabelTools(server: McpServer): void {
       description: 'Assign documents to a label.',
       inputSchema: z.object({
         labelId: LabelIdSchema,
-        documentIds: z.array(z.number().int().positive()).describe('Array of document IDs to assign'),
+        documentIds: z.array(DocIdSchema).describe('Array of document IDs to assign'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
@@ -122,7 +122,7 @@ export function registerLabelTools(server: McpServer): void {
       description: 'Remove documents from a label.',
       inputSchema: z.object({
         labelId: LabelIdSchema,
-        documentIds: z.array(z.number().int().positive()).describe('Array of document IDs to remove'),
+        documentIds: z.array(DocIdSchema).describe('Array of document IDs to remove'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     },
@@ -158,7 +158,7 @@ export function registerLabelTools(server: McpServer): void {
       inputSchema: z.object({
         labelId: LabelIdSchema,
         id: IdSchema,
-        labelIds: z.array(z.number().int().positive()).optional().describe('Array of label IDs to assign'),
+        labelIds: z.array(LabelIdSchema).optional().describe('Array of label IDs to assign'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -176,7 +176,7 @@ export function registerLabelTools(server: McpServer): void {
       description: 'Assign pages to a label.',
       inputSchema: z.object({
         labelId: LabelIdSchema,
-        pageIds: z.array(z.number().int().positive()).describe('Array of page IDs to assign'),
+        pageIds: z.array(IdSchema).describe('Array of page IDs to assign'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
@@ -194,7 +194,7 @@ export function registerLabelTools(server: McpServer): void {
       description: 'Remove pages from a label.',
       inputSchema: z.object({
         labelId: LabelIdSchema,
-        pageIds: z.array(z.number().int().positive()).describe('Array of page IDs to remove'),
+        pageIds: z.array(IdSchema).describe('Array of page IDs to remove'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     },
@@ -230,7 +230,7 @@ export function registerLabelTools(server: McpServer): void {
       inputSchema: z.object({
         labelId: LabelIdSchema,
         id: IdSchema,
-        labelIds: z.array(z.number().int().positive()).optional().describe('Array of label IDs to assign'),
+        labelIds: z.array(LabelIdSchema).optional().describe('Array of label IDs to assign'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
