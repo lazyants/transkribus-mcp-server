@@ -2,6 +2,8 @@ import axios, { AxiosInstance, AxiosError, Method } from 'axios';
 import { TRANSKRIBUS_API_BASE, MAX_RETRIES, REQUEST_TIMEOUT } from '../constants.js';
 
 let sessionId: string | null = null;
+let loginPromise: Promise<string> | null = null;
+let loginKey: string | null = null;
 let clientInstance: AxiosInstance | null = null;
 let loginClientInstance: AxiosInstance | null = null;
 
@@ -252,6 +254,39 @@ function sessionFromRequestConfig(config: { headers?: unknown }): string | null 
   return match ? match[1] : null;
 }
 
+/** #39: de-duplicate concurrent logins. Both entry points below can be reached
+ *  by several callers at once — N cold-start tool calls all find `sessionId`
+ *  null, and N in-flight requests can all take a 401 — and each one used to
+ *  fire its own POST /auth/login. They now share one in-flight promise.
+ *
+ *  The memo is KEYED BY `expiredSessionId`, because that argument changes what
+ *  login() returns: with no user/password configured it adopts a configured
+ *  session only when that session differs from the one that just died. Callers
+ *  replacing different dead sessions must therefore not share a result, so they
+ *  get their own login — which is the correct answer, not a missed dedup. Cold
+ *  starts all pass null, so they always share.
+ *
+ *  The memo is the promise RETURNED by `.finally()`, not the bare `login()`
+ *  promise: returning the cleanup chain is what propagates a rejection to every
+ *  awaiting caller instead of leaving it unhandled. It is cleared on settle —
+ *  failure included — so a failed login never poisons the memo for later
+ *  callers. The identity check keeps a cleanup from clearing a memo that a
+ *  different key has since installed. */
+function loginOnce(options: { expiredSessionId?: string | null } = {}): Promise<string> {
+  const key = options.expiredSessionId ?? null;
+  if (loginPromise && loginKey === key) return loginPromise;
+
+  const pending: Promise<string> = login(options).finally(() => {
+    if (loginPromise === pending) {
+      loginPromise = null;
+      loginKey = null;
+    }
+  });
+  loginPromise = pending;
+  loginKey = key;
+  return pending;
+}
+
 function baseClientConfig(): Record<string, unknown> {
   return {
     baseURL: TRANSKRIBUS_API_BASE,
@@ -397,7 +432,7 @@ function createClient(): AxiosInstance {
       const expiredSessionId = sessionFromRequestConfig(config) ?? sessionId;
 
       try {
-        sessionId = await login({ expiredSessionId });
+        sessionId = await loginOnce({ expiredSessionId });
         console.error('[transkribus-mcp] Re-authenticated after 401');
         return client.request(config);
       } catch (loginErr) {
@@ -448,7 +483,7 @@ async function ensureSession(): Promise<void> {
     return;
   }
 
-  sessionId = await login();
+  sessionId = await loginOnce();
   console.error('[transkribus-mcp] Authenticated successfully');
 }
 
