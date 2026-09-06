@@ -263,9 +263,21 @@ describe('resolveCredentials (keyring reads with environment fallback)', () => {
 
     const resolveCredentials = await resolver();
     const pending = resolveCredentials();
+    let settled = false;
+    void pending.then(() => {
+      settled = true;
+    });
+
+    // All three reads must actually have been attempted and still be in flight:
+    // an import or construction failure would reach the same env fallback
+    // immediately, and would pass an end-result-only assertion.
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(keyring.calls).toHaveLength(3);
+    expect(settled, 'must still be waiting one millisecond before the deadline').toBe(false);
+
     // The abort signal alone would not end this — napi-rs cannot cancel a read
     // that has already started, so the deadline is what unblocks the server.
-    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(1);
     await expect(pending).resolves.toEqual({
       user: 'env-user',
       password: 'env-password',

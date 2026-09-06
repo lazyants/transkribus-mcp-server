@@ -103,6 +103,17 @@ Notes relevant to the supply-chain and credential surface:
   answers). Credential resolution has already returned by then and the server
   serves requests normally; the only visible effect is on a process that would
   otherwise be idle enough to exit.
+- **Known limitation — a keyring backend that hangs while it is being opened.**
+  The 5-second bound covers the *read*. Creating the entry object is synchronous
+  inside the native binding, and on Linux that opens the Secret Service D-Bus
+  connection, so a Secret Service that accepts the connection but never answers
+  blocks the event loop until D-Bus's own timeout expires; no JavaScript timer
+  can interrupt it. The common headless case is unaffected — with no Secret
+  Service at all the call fails immediately and the environment fallback
+  applies. Isolating the native calls in a worker thread would close this; it is
+  deliberately not done, because it would add a thread and its message plumbing
+  to every credential resolution on every platform for a Linux-only condition
+  nobody has reported. Please report it if you hit it.
 - **Credential resolution never echoes a credential.** The "no credentials
   found" error names only the sources to configure (keyring service/accounts,
   environment variables) and prints the *default* service constant, never the
