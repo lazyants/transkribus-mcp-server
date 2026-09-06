@@ -32,6 +32,7 @@ import { registerFileTools } from './tools/files.js';
 import { registerSystemTools } from './tools/system.js';
 import { registerRootTools } from './tools/root.js';
 import { registerActionTools } from './tools/actions.js';
+import { registerProcessingTools } from './tools/processing.js';
 import { registerReferenceResource } from './resources/transkribus-reference.js';
 
 const server = createServer('transkribus-mcp-server');
@@ -83,6 +84,9 @@ registerLabelTools(server);
 registerFileTools(server);
 registerSystemTools(server);
 registerRootTools(server);
+
+// Processing API (Metagrapho) — separate service, separate auth
+registerProcessingTools(server);
 
 // API-reference resource
 registerReferenceResource(server);

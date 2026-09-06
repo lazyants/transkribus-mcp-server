@@ -1,7 +1,7 @@
 {
   "name": "@lazyants/transkribus-mcp-server",
   "version": "3.1.0",
-  "description": "MCP server for the Transkribus REST API — manage collections, documents, recognition, models, and more. 300 tools across 22 resource domains.",
+  "description": "MCP server for the Transkribus REST API — manage collections, documents, recognition, models, and more, plus the Metagrapho Processing API. 304 tools across 23 resource domains.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -13,7 +13,8 @@
     "transkribus-mcp-search": "dist/entry-search.js",
     "transkribus-mcp-jobs": "dist/entry-jobs.js",
     "transkribus-mcp-users": "dist/entry-users.js",
-    "transkribus-mcp-admin": "dist/entry-admin.js"
+    "transkribus-mcp-admin": "dist/entry-admin.js",
+    "transkribus-mcp-processing": "dist/entry-processing.js"
   },
   "scripts": {
     "build": "tsc",

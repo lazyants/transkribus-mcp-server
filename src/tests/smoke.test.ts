@@ -32,6 +32,7 @@ import { registerFileTools } from '../tools/files.js';
 import { registerSystemTools } from '../tools/system.js';
 import { registerRootTools } from '../tools/root.js';
 import { registerActionTools } from '../tools/actions.js';
+import { registerProcessingTools } from '../tools/processing.js';
 
 function freshServer(): McpServer {
   return new McpServer({ name: 'test', version: '0.0.0' });
@@ -42,7 +43,7 @@ function toolCount(server: McpServer): number {
 }
 
 describe('Transkribus MCP Server — smoke tests', () => {
-  it('registers 300 tools for the full server', () => {
+  it('registers 304 tools for the full server', () => {
     const server = freshServer();
 
     // Auth (5)
@@ -93,7 +94,10 @@ describe('Transkribus MCP Server — smoke tests', () => {
     registerSystemTools(server);
     registerRootTools(server);
 
-    expect(toolCount(server)).toBe(300);
+    // Processing / Metagrapho (4)
+    registerProcessingTools(server);
+
+    expect(toolCount(server)).toBe(304);
   });
 
   it('registers 5 auth tools', () => {
@@ -238,6 +242,12 @@ describe('Transkribus MCP Server — smoke tests', () => {
     expect(toolCount(server)).toBe(8);
   });
 
+  it('registers 4 processing tools', () => {
+    const server = freshServer();
+    registerProcessingTools(server);
+    expect(toolCount(server)).toBe(4);
+  });
+
   // Entry point tests
   it('registers 132 tools for collections entry point', () => {
     const server = freshServer();
@@ -288,6 +298,14 @@ describe('Transkribus MCP Server — smoke tests', () => {
     registerJobTools(server);
     registerActionTools(server);
     expect(toolCount(server)).toBe(18); // 5 + 10 + 3
+  });
+
+  it('registers 4 tools for the processing entry point', () => {
+    const server = freshServer();
+    // No auth tools: the Processing entry uses OIDC bearer tokens, not the
+    // legacy JSESSIONID session those tools manage.
+    registerProcessingTools(server);
+    expect(toolCount(server)).toBe(4);
   });
 
   it('registers 29 tools for users entry point', () => {

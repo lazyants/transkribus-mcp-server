@@ -1,0 +1,7 @@
+{"version":3,"term":{"cols":80,"rows":24},"timestamp":1788728482,"command":"node smoke-processing.mjs","env":{"SHELL":"/bin/zsh"}}
+[0.458, "o", "MCP server running on stdio (v3.1.0)\r\n"]
+[0.010, "o", "tools: 4\r\n  transkribus_processing_submit_image  required=[config, image]\r\n  transkribus_processing_get_status  required=[processId]\r\n  transkribus_processing_get_page_xml  required=[processId]\r\n  transkribus_processing_get_alto_xml  required=[processId]\r\n"]
+[0.002, "o", "resources: reference://transkribus/api\r\n"]
+[0.004, "o", "[transkribus-mcp] Tool error: TRANSKRIBUS_USER and TRANSKRIBUS_PASSWORD environment variables are required for the Transkribus Processing API, or set TRANSKRIBUS_ACCESS_TOKEN directly.\r\n"]
+[0.003, "o", "isError: true -> Error: TRANSKRIBUS_USER and TRANSKRIBUS_PASSWORD environment variables are required for the Transkribus Processing API, or set TRANSKRIBUS_ACCESS_TOKEN directly.\r\n"]
+[0.012, "x", "0"]
