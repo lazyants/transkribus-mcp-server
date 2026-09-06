@@ -147,68 +147,50 @@ export async function resolveCredentials(): Promise<ResolvedCredentials> {
 
 let credentialsPromise: Promise<ResolvedCredentials> | null = null;
 
-/** Single-flight: concurrent callers (ensureSession on the first requests, and
- *  login() on a 401 re-auth) share one keyring lookup, but the cached promise is
- *  cleared on rejection so a transient keyring failure or a credential set after
- *  startup can be retried without restarting the process. */
+/** Single-flight, and nothing kept afterwards: concurrent callers share one
+ *  in-flight lookup, and the memo is dropped once it settles, so the next caller
+ *  reads the keyring and the environment again.
+ *
+ *  Holding a resolved snapshot for the process lifetime is what made a rotated
+ *  password, a replaced session id, or credentials added after startup require a
+ *  restart — one defect per way of going stale. Keeping no snapshot removes the
+ *  class rather than each instance of it. The reads this costs are bounded: a
+ *  cold start and a 401 re-authentication, not one per request.
+ *
+ *  The memo is the promise RETURNED by .finally(), not the bare lookup, so a
+ *  rejection reaches every awaiting caller instead of going unhandled; the
+ *  identity check keeps a settling lookup from clearing a newer one. */
 function getCredentials(): Promise<ResolvedCredentials> {
   if (credentialsPromise) return credentialsPromise;
-  const pending = resolveCredentials().catch((err: unknown) => {
+  const pending: Promise<ResolvedCredentials> = resolveCredentials().finally(() => {
     if (credentialsPromise === pending) credentialsPromise = null;
-    throw err;
   });
   credentialsPromise = pending;
   return pending;
 }
 
-/** Drop the cached snapshot so the next getCredentials() reads the keyring and
- *  the environment again. Concurrent callers still share whatever lookup runs
- *  next — this clears the memo, it does not bypass it. */
-function invalidateCredentials(): void {
-  credentialsPromise = null;
-}
-
 /**
- * Obtain a session id by logging in. `refresh` is set by the 401 re-auth path:
- * whatever is cached was resolved before the session died, so a password rotated
- * since then would be submitted stale — the request that MET the expired session
- * would fail and only the next one would recover. Re-reading first lets the
- * triggering request recover transparently. The cold-start path leaves it unset:
- * the snapshot is being taken for the first time either way.
+ * Obtain a session id by logging in, from credentials read right now.
  *
- * `expiredSessionId` is the session THIS caller's request actually carried. It
- * is not the same thing as the module-global `sessionId`, which another caller's
- * re-auth can replace while this one is awaiting — comparing against the global
- * would make the second of two concurrent 401s see the freshly adopted session
- * as "the one that just failed" and refuse it.
+ * `expiredSessionId` is the session THIS caller's request actually carried, and
+ * the value the freshly read one is compared against. It is deliberately not the
+ * module-global `sessionId`, which another caller's re-auth can replace while
+ * this one is awaiting: comparing against the global would make the second of
+ * two concurrent 401s mistake the just-adopted session for the dead one.
  */
 async function login({
-  refresh = false,
   expiredSessionId = null,
-}: { refresh?: boolean; expiredSessionId?: string | null } = {}): Promise<string> {
-  if (refresh) invalidateCredentials();
-
-  let creds = await getCredentials();
+}: { expiredSessionId?: string | null } = {}): Promise<string> {
+  const creds = await getCredentials();
   if (!creds.user || !creds.password) {
-    // A snapshot taken when only a session id was configured has no login pair,
-    // and that session has now expired. Re-read both sources before giving up,
-    // so credentials provided after startup are picked up rather than needing a
-    // restart. (Already done above when `refresh` is set.)
-    if (!refresh) {
-      invalidateCredentials();
-      creds = await getCredentials();
-    }
-
-    // What was provided may be a REPLACEMENT SESSION rather than a login pair:
-    // a session-id-only setup rotates the entry (or the env var) and expects the
-    // running server to use it. Adopt it, and skip the account login this
-    // function exists for. The comparison is against the session that produced
-    // THIS 401 — re-adopting that one would hand the caller a credential already
-    // known to be dead — and deliberately not against the module-global one; see
-    // the note on expiredSessionId above.
+    // The configured credential may be a session id with no login pair beside
+    // it. If what the sources hold now is a DIFFERENT session from the one that
+    // just died, that is the replacement the operator provided — adopt it and
+    // skip the account login this function exists for. Re-adopting the session
+    // that produced this 401 would hand the caller a credential already known
+    // to be dead.
     if (creds.sessionId && creds.sessionId !== expiredSessionId) return creds.sessionId;
-  }
-  if (!creds.user || !creds.password) {
+
     throw new Error(
       'Transkribus login requires a user name and password. Provide them via the OS keyring ' +
       `(service "${KEYRING_SERVICE_DEFAULT}", override with TRANSKRIBUS_KEYRING_SERVICE; accounts ` +
@@ -230,11 +212,6 @@ async function login({
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     });
   } catch (err) {
-    // The credentials this attempt used are now suspect — a rotated or
-    // mistyped password is the common case — so drop the snapshot: the next
-    // attempt re-reads the keyring and the environment instead of retrying the
-    // same rejected pair until the process restarts.
-    invalidateCredentials();
     // This propagates directly out of ensureSession() to the tool caller —
     // it does NOT go through wrapAxiosError. Apply the same fail-closed rule
     // here: if sanitizeAxiosError can't guarantee full coverage, don't
@@ -420,7 +397,7 @@ function createClient(): AxiosInstance {
       const expiredSessionId = sessionFromRequestConfig(config) ?? sessionId;
 
       try {
-        sessionId = await login({ refresh: true, expiredSessionId });
+        sessionId = await login({ expiredSessionId });
         console.error('[transkribus-mcp] Re-authenticated after 401');
         return client.request(config);
       } catch (loginErr) {
