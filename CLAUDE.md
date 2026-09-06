@@ -42,9 +42,11 @@ write and review code here without another file. It is deliberately NOT the whol
 - **API**: Transkribus REST (handwriting OCR/HTR).
 - **Tool naming**: `transkribus_<action>_<resource>`.
 - **Layout**: `src/index.ts` plus `src/entry-*.ts` split entries, with the tool modules in
-  `src/tools/` — all of them imported by `src/index.ts`. `src/tests/smoke.test.ts` asserts the tool
-  count for the main entry and for each split; read it for the current numbers and update it in the
-  same commit as any tool change.
+  `src/tools/`. `src/entries.ts` holds one registrar array per entry point and is the only place
+  that list exists — add a new tool module to the array of the entry it belongs to, and both the
+  shipped binary and the test follow. `src/tests/smoke.test.ts` asserts the tool count for the main
+  entry and for each split; read it for the current numbers and update it in the same commit as any
+  tool change.
 
 - **Architecture decisions**, each with its source in this repo — no external reference needed:
   - **`intCoerce` preprocessor** (`src/schemas/common.ts`) — accepts string-encoded numeric IDs from

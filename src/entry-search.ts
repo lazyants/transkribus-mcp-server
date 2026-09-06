@@ -1,15 +1,11 @@
 #!/usr/bin/env node
 import { createServer, logFatalAndExit, startServer } from './server.js';
-import { registerAuthTools } from './tools/auth.js';
-import { registerSearchTools } from './tools/search.js';
-import { registerKwsTools } from './tools/kws.js';
+import { searchEntry, registerAll } from './entries.js';
 import { registerReferenceResource } from './resources/transkribus-reference.js';
 
 const server = createServer('transkribus-mcp-search');
 
-registerAuthTools(server);
-registerSearchTools(server);
-registerKwsTools(server);
+registerAll(server, searchEntry);
 registerReferenceResource(server);
 
 startServer(server).catch(logFatalAndExit);
