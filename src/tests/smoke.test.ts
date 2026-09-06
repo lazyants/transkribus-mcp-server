@@ -32,6 +32,20 @@ import { registerFileTools } from '../tools/files.js';
 import { registerSystemTools } from '../tools/system.js';
 import { registerRootTools } from '../tools/root.js';
 import { registerActionTools } from '../tools/actions.js';
+// The entry-point tests below consume the SAME arrays src/index.ts and the
+// src/entry-*.ts binaries do, so dropping a module from a shipped entry point
+// now turns its test red. The per-module tests keep their direct imports above.
+import {
+  registerAll,
+  fullEntry,
+  collectionsEntry,
+  transcriptionEntry,
+  modelsEntry,
+  searchEntry,
+  jobsEntry,
+  usersEntry,
+  adminEntry,
+} from '../entries.js';
 
 function freshServer(): McpServer {
   return new McpServer({ name: 'test', version: '0.0.0' });
@@ -44,55 +58,9 @@ function toolCount(server: McpServer): number {
 describe('Transkribus MCP Server — smoke tests', () => {
   it('registers 300 tools for the full server', () => {
     const server = freshServer();
-
-    // Auth (5)
-    registerAuthTools(server);
-
-    // Collections (127)
-    registerCollectionCoreTools(server);
-    registerCollectionDocumentTools(server);
-    registerCollectionPageTools(server);
-    registerCollectionUserTools(server);
-    registerCollectionCrowdTools(server);
-    registerCollectionEditDeclTools(server);
-    registerCollectionCreditTools(server);
-    registerCollectionStatsTools(server);
-    registerCollectionLabelTools(server);
-    registerCollectionActivityTools(server);
-    registerCollectionTagTools(server);
-
-    // Recognition & Training (42)
-    registerRecognitionTools(server);
-    registerLayoutAnalysisTools(server);
-    registerPylaiaTools(server);
-    registerP2palaTools(server);
-    registerDuTools(server);
-
-    // Models (21)
-    registerModelTools(server);
-
-    // Search & KWS (11)
-    registerSearchTools(server);
-    registerKwsTools(server);
-
-    // Jobs & Actions (13)
-    registerJobTools(server);
-    registerActionTools(server);
-
-    // Users & Crowdsourcing & eLearning (24)
-    registerUserTools(server);
-    registerCrowdsourcingTools(server);
-    registerElearningTools(server);
-
-    // Admin & System & Resources (57)
-    registerAdminTools(server);
-    registerCreditTools(server);
-    registerUploadTools(server);
-    registerLabelTools(server);
-    registerFileTools(server);
-    registerSystemTools(server);
-    registerRootTools(server);
-
+    registerAll(server, fullEntry);
+    // 5 auth + 127 collections + 42 recognition/training + 21 models
+    // + 11 search/KWS + 13 jobs/actions + 24 users/crowd/eLearning + 57 admin/system
     expect(toolCount(server)).toBe(300);
   });
 
@@ -238,77 +206,46 @@ describe('Transkribus MCP Server — smoke tests', () => {
     expect(toolCount(server)).toBe(8);
   });
 
-  // Entry point tests
+  // Entry point tests — these run the exact composition each split binary ships.
   it('registers 132 tools for collections entry point', () => {
     const server = freshServer();
-    registerAuthTools(server);
-    registerCollectionCoreTools(server);
-    registerCollectionDocumentTools(server);
-    registerCollectionPageTools(server);
-    registerCollectionUserTools(server);
-    registerCollectionCrowdTools(server);
-    registerCollectionEditDeclTools(server);
-    registerCollectionCreditTools(server);
-    registerCollectionStatsTools(server);
-    registerCollectionLabelTools(server);
-    registerCollectionActivityTools(server);
-    registerCollectionTagTools(server);
+    registerAll(server, collectionsEntry);
     expect(toolCount(server)).toBe(132); // 5 auth + 127 collections
   });
 
   it('registers 47 tools for transcription entry point', () => {
     const server = freshServer();
-    registerAuthTools(server);
-    registerRecognitionTools(server);
-    registerLayoutAnalysisTools(server);
-    registerPylaiaTools(server);
-    registerP2palaTools(server);
-    registerDuTools(server);
+    registerAll(server, transcriptionEntry);
     expect(toolCount(server)).toBe(47); // 5 + 33 + 5 + 2 + 1 + 1
   });
 
   it('registers 26 tools for models entry point', () => {
     const server = freshServer();
-    registerAuthTools(server);
-    registerModelTools(server);
+    registerAll(server, modelsEntry);
     expect(toolCount(server)).toBe(26); // 5 + 21
   });
 
   it('registers 16 tools for search entry point', () => {
     const server = freshServer();
-    registerAuthTools(server);
-    registerSearchTools(server);
-    registerKwsTools(server);
+    registerAll(server, searchEntry);
     expect(toolCount(server)).toBe(16); // 5 + 6 + 5
   });
 
   it('registers 18 tools for jobs entry point', () => {
     const server = freshServer();
-    registerAuthTools(server);
-    registerJobTools(server);
-    registerActionTools(server);
+    registerAll(server, jobsEntry);
     expect(toolCount(server)).toBe(18); // 5 + 10 + 3
   });
 
   it('registers 29 tools for users entry point', () => {
     const server = freshServer();
-    registerAuthTools(server);
-    registerUserTools(server);
-    registerCrowdsourcingTools(server);
-    registerElearningTools(server);
+    registerAll(server, usersEntry);
     expect(toolCount(server)).toBe(29); // 5 + 15 + 5 + 4
   });
 
   it('registers 62 tools for admin entry point', () => {
     const server = freshServer();
-    registerAuthTools(server);
-    registerAdminTools(server);
-    registerCreditTools(server);
-    registerUploadTools(server);
-    registerLabelTools(server);
-    registerFileTools(server);
-    registerSystemTools(server);
-    registerRootTools(server);
+    registerAll(server, adminEntry);
     expect(toolCount(server)).toBe(62); // 5 + 8 + 12 + 11 + 13 + 3 + 2 + 8
   });
 });
