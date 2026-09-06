@@ -4,39 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-
-import { registerActionTools } from '../tools/actions.js';
-import { registerAdminTools } from '../tools/admin.js';
-import { registerAuthTools } from '../tools/auth.js';
-import { registerCollectionActivityTools } from '../tools/collections-activity.js';
-import { registerCollectionCoreTools } from '../tools/collections-core.js';
-import { registerCollectionCreditTools } from '../tools/collections-credits.js';
-import { registerCollectionCrowdTools } from '../tools/collections-crowd.js';
-import { registerCollectionDocumentTools } from '../tools/collections-documents.js';
-import { registerCollectionEditDeclTools } from '../tools/collections-editdecl.js';
-import { registerCollectionLabelTools } from '../tools/collections-labels.js';
-import { registerCollectionPageTools } from '../tools/collections-pages.js';
-import { registerCollectionStatsTools } from '../tools/collections-stats.js';
-import { registerCollectionTagTools } from '../tools/collections-tags.js';
-import { registerCollectionUserTools } from '../tools/collections-users.js';
-import { registerCreditTools } from '../tools/credits.js';
-import { registerCrowdsourcingTools } from '../tools/crowdsourcing.js';
-import { registerDuTools } from '../tools/du.js';
-import { registerElearningTools } from '../tools/elearning.js';
-import { registerFileTools } from '../tools/files.js';
-import { registerJobTools } from '../tools/jobs.js';
-import { registerKwsTools } from '../tools/kws.js';
-import { registerLabelTools } from '../tools/labels.js';
-import { registerLayoutAnalysisTools } from '../tools/layout-analysis.js';
-import { registerModelTools } from '../tools/models.js';
-import { registerP2palaTools } from '../tools/p2pala.js';
-import { registerPylaiaTools } from '../tools/pylaia.js';
-import { registerRecognitionTools } from '../tools/recognition.js';
-import { registerRootTools } from '../tools/root.js';
-import { registerSearchTools } from '../tools/search.js';
-import { registerSystemTools } from '../tools/system.js';
-import { registerUploadTools } from '../tools/uploads.js';
-import { registerUserTools } from '../tools/user.js';
+import { fullEntry, registerAll } from '../entries.js';
 
 // Two ratchets from issue #33, both scanning the whole registered tool surface
 // so a new tool cannot quietly reintroduce what the sweep cleaned up.
@@ -55,46 +23,11 @@ import { registerUserTools } from '../tools/user.js';
 // the tool stays usable, and that count moves whenever anyone adds any optional
 // numeric param — freezing it would produce noise rather than defects.
 
-const REGISTRARS = [
-  registerActionTools,
-  registerAdminTools,
-  registerAuthTools,
-  registerCollectionActivityTools,
-  registerCollectionCoreTools,
-  registerCollectionCreditTools,
-  registerCollectionCrowdTools,
-  registerCollectionDocumentTools,
-  registerCollectionEditDeclTools,
-  registerCollectionLabelTools,
-  registerCollectionPageTools,
-  registerCollectionStatsTools,
-  registerCollectionTagTools,
-  registerCollectionUserTools,
-  registerCreditTools,
-  registerCrowdsourcingTools,
-  registerDuTools,
-  registerElearningTools,
-  registerFileTools,
-  registerJobTools,
-  registerKwsTools,
-  registerLabelTools,
-  registerLayoutAnalysisTools,
-  registerModelTools,
-  registerP2palaTools,
-  registerPylaiaTools,
-  registerRecognitionTools,
-  registerRootTools,
-  registerSearchTools,
-  registerSystemTools,
-  registerUploadTools,
-  registerUserTools,
-];
-
 type RegisteredTools = Record<string, { inputSchema?: z.ZodObject }>;
 
 function registerEveryTool(): RegisteredTools {
   const server = new McpServer({ name: 'coercion-test', version: '0.0.0' });
-  for (const register of REGISTRARS) register(server);
+  registerAll(server, fullEntry);
   return (server as unknown as { _registeredTools: RegisteredTools })._registeredTools;
 }
 
@@ -179,9 +112,9 @@ describe('string-encoded numbers are accepted wherever a number is (issue #33)',
   it('registers every module under src/tools/', () => {
     const toolsDir = resolve(dirname(fileURLToPath(import.meta.url)), '../tools');
     const modules = readdirSync(toolsDir).filter((f) => f.endsWith('.ts'));
-    // A new tool module that nobody adds to REGISTRARS would never be scanned
-    // by the assertions below, and its raw params would pass unnoticed.
-    expect(modules.length).toBe(REGISTRARS.length);
+    // A new tool module missing from fullEntry is not served by the full entry
+    // point at all, and would also never be scanned by the assertions below.
+    expect(modules.length).toBe(fullEntry.length);
     expect(Object.keys(tools).length).toBeGreaterThan(250);
   });
 
