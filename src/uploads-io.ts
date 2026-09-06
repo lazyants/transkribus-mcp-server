@@ -32,7 +32,7 @@ export function resolveTextPayload(
   inlineField: string,
   fileField: string,
 ): string {
-  if ((inline === undefined) === (filePath === undefined)) {
+  if (!exactlyOneOf(inline, filePath)) {
     throw new Error(`Provide exactly one of "${inlineField}" or "${fileField}".`);
   }
   return inline !== undefined ? inline : readLocalFile(filePath as string).toString('utf-8');
