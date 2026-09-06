@@ -95,37 +95,55 @@ function registerEveryTool(): RegisteredTools {
 
 interface JsonSchemaProperty {
   type?: string;
+  const?: unknown;
   minimum?: number;
   maximum?: number;
   exclusiveMinimum?: number;
   exclusiveMaximum?: number;
+  anyOf?: JsonSchemaProperty[];
+  oneOf?: JsonSchemaProperty[];
 }
 
 interface NumericField {
   tool: string;
   param: string;
   required: boolean;
-  probe: number;
-  accepts: boolean;
+  probes: number[];
+  accepted?: number;
   coerces: boolean;
 }
 
-// Picks a value the field's own bounds allow, preferring a small one. Probing
-// with a fixed literal would silently SKIP any param whose constraints exclude
-// it (`z.number().int().min(4)` rejects 3), and a skipped param produces exactly
-// what a clean one produces — so the bounds have to drive the probe.
-function probeValue(prop: JsonSchemaProperty): number {
-  const low = prop.exclusiveMinimum !== undefined ? prop.exclusiveMinimum + 1 : prop.minimum;
-  const high = prop.exclusiveMaximum !== undefined ? prop.exclusiveMaximum - 1 : prop.maximum;
-  let value = 3;
-  if (low !== undefined && value < low) value = low;
-  if (high !== undefined && value > high) value = high;
-  return value;
+// A value can satisfy the property itself or any of its alternatives: a union or
+// a .nullable() emits `anyOf` and carries no `type` of its own. Ignoring those
+// is how a numeric param drops out of the scan without anything going red.
+function branches(prop: JsonSchemaProperty): JsonSchemaProperty[] {
+  return [prop, ...(prop.anyOf ?? []), ...(prop.oneOf ?? [])];
 }
 
-// Numeric params are identified from the JSON Schema MCP actually publishes, not
-// from what a probe happens to be accepted by, so nothing drops out of the scan
-// unnoticed. `required` comes from the same emitted schema.
+// One candidate value per numeric branch, inside that branch's own bounds and as
+// small as they allow. Probing with a fixed literal would silently SKIP any param
+// whose constraints exclude it (`z.number().int().min(4)` rejects 3), and a
+// skipped param produces exactly what a clean one produces.
+function numericProbes(prop: JsonSchemaProperty): number[] {
+  const probes: number[] = [];
+  for (const branch of branches(prop)) {
+    if (typeof branch.const === 'number') {
+      probes.push(branch.const);
+      continue;
+    }
+    if (branch.type !== 'integer' && branch.type !== 'number') continue;
+    const low = branch.exclusiveMinimum !== undefined ? branch.exclusiveMinimum + 1 : branch.minimum;
+    const high = branch.exclusiveMaximum !== undefined ? branch.exclusiveMaximum - 1 : branch.maximum;
+    let value = 3;
+    if (low !== undefined && value < low) value = low;
+    if (high !== undefined && value > high) value = high;
+    probes.push(value);
+  }
+  return probes;
+}
+
+// Numeric params are identified from the JSON Schema MCP actually publishes, and
+// `required` is read from that same schema rather than guessed.
 function numericFields(tools: RegisteredTools): NumericField[] {
   const fields: NumericField[] = [];
   for (const [tool, def] of Object.entries(tools)) {
@@ -136,16 +154,17 @@ function numericFields(tools: RegisteredTools): NumericField[] {
     };
     const required = new Set(emitted.required ?? []);
     for (const [param, prop] of Object.entries(emitted.properties ?? {})) {
-      if (prop.type !== 'integer' && prop.type !== 'number') continue;
+      const probes = numericProbes(prop);
+      if (probes.length === 0) continue;
       const field = (def.inputSchema.shape as Record<string, z.ZodType>)[param];
-      const probe = probeValue(prop);
+      const accepted = probes.find((value) => field.safeParse(value).success);
       fields.push({
         tool,
         param,
         required: required.has(param),
-        probe,
-        accepts: field.safeParse(probe).success,
-        coerces: field.safeParse(String(probe)).success,
+        probes,
+        accepted,
+        coerces: accepted !== undefined && field.safeParse(String(accepted)).success,
       });
     }
   }
@@ -170,10 +189,12 @@ describe('string-encoded numbers are accepted wherever a number is (issue #33)',
   });
 
   it('exercised every numeric param it found', () => {
-    // If a param's declared bounds cannot produce a value the schema accepts,
-    // the coercion answer below is meaningless for it — fail rather than skip.
-    const unexercised = fields.filter((f) => !f.accepts).map((f) => `${f.tool}.${f.param} (probe ${f.probe})`);
-    expect(unexercised, `probe value rejected by its own schema: ${unexercised.join(', ')}`).toEqual([]);
+    // If no value inside a param's declared bounds is accepted, the coercion
+    // answer below is meaningless for it — fail rather than skip it.
+    const unexercised = fields
+      .filter((f) => f.accepted === undefined)
+      .map((f) => `${f.tool}.${f.param} (probes ${f.probes.join('/')})`);
+    expect(unexercised, `no in-bounds probe was accepted: ${unexercised.join(', ')}`).toEqual([]);
     expect(fields.filter((f) => f.required).length).toBeGreaterThan(300);
     expect(fields.filter(isPagination).length).toBeGreaterThan(100);
   });
