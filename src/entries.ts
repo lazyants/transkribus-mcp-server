@@ -36,6 +36,11 @@ import { registerActionTools } from './tools/actions.js';
 // The entry files, src/index.ts and the smoke tests all consume these arrays, so a
 // module added or dropped here moves the shipped binary and the test together —
 // previously the lists were written out once per consumer and could drift apart.
+//
+// Tradeoff: a split binary now imports every tool module rather than only its own,
+// because the arrays live in one file. Which tools it REGISTERS is unchanged; the
+// extra cost is parsing the other modules at startup, and they only define register
+// functions at module scope.
 export type ToolRegistrar = (server: McpServer) => void;
 
 export const collectionsEntry: readonly ToolRegistrar[] = [
