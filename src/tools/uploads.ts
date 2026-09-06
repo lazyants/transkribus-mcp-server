@@ -1,8 +1,54 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { transkribusRequest } from '../services/transkribus.js';
+import { transkribusRequest, transkribusUpload } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
 import { CollIdSchema, IdSchema } from '../schemas/common.js';
+import { resolveTextPayload, exactlyOneOf, appendFilePart } from '../uploads-io.js';
+
+export interface UploadDescriptorPageInput {
+  fileName: string;
+  pageNr: number;
+  pageXmlName?: string;
+}
+
+export interface UploadDescriptorInput {
+  title: string;
+  author?: string;
+  description?: string;
+  relatedUploadId?: number;
+  pages: UploadDescriptorPageInput[];
+}
+
+/**
+ * Build the `documentUploadDescriptor` body for `POST /uploads` (create upload
+ * document structure). Pure: no I/O, no schema validation.
+ *
+ * GOTCHA: `pageList` is a WRAPPER object around `pages` (JAXB
+ * `@XmlElementWrapper(name="pageList")`), not a flat array — see
+ * `TrpServerConn.java`'s `createUploadDocStructure`. `md` and `relatedUploadId`
+ * keys that were not supplied are omitted entirely rather than emitted as
+ * `undefined`.
+ */
+export function buildUploadDescriptor(params: UploadDescriptorInput): Record<string, unknown> {
+  const { title, author, description, relatedUploadId, pages } = params;
+
+  const md: Record<string, unknown> = { title };
+  if (author !== undefined) md.author = author;
+  if (description !== undefined) md.description = description;
+
+  const body: Record<string, unknown> = {
+    md,
+    pageList: {
+      pages: pages.map((page) => {
+        const entry: Record<string, unknown> = { fileName: page.fileName, pageNr: page.pageNr };
+        if (page.pageXmlName !== undefined) entry.pageXmlName = page.pageXmlName;
+        return entry;
+      }),
+    },
+  };
+  if (relatedUploadId !== undefined) body.relatedUploadId = relatedUploadId;
+  return body;
+}
 
 export function registerUploadTools(server: McpServer): void {
   // 1. POST /uploads — Create upload from METS
@@ -10,14 +56,25 @@ export function registerUploadTools(server: McpServer): void {
     'transkribus_upload_create_from_mets',
     {
       title: 'Create Upload from METS',
-      description: 'Create upload from METS file.',
+      description: 'Create an upload from a METS XML document.',
       inputSchema: z.object({
         collId: CollIdSchema,
-        metsUrl: z.string().describe('URL of the METS file'),
+        metsXml: z.string().optional().describe(
+          'Inline METS XML document content. Exactly one of "metsXml" or "metsFilePath" is required.'
+        ),
+        metsFilePath: z.string().optional().describe(
+          'Absolute path to a local METS XML file. Exactly one of "metsXml" or "metsFilePath" is required.'
+        ),
+      }).refine((v) => exactlyOneOf(v.metsXml, v.metsFilePath), {
+        message: 'Provide exactly one of "metsXml" or "metsFilePath".',
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
-    handleToolRequest(async (params) => transkribusRequest('POST', '/uploads', params))
+    handleToolRequest(async (params) => {
+      const { collId, metsXml, metsFilePath } = params;
+      const xml = resolveTextPayload(metsXml, metsFilePath, 'metsXml', 'metsFilePath');
+      return transkribusRequest('POST', '/uploads', xml, { collId }, { 'Content-Type': 'application/xml' });
+    })
   );
 
   // 2. POST /uploads — Create upload document structure
@@ -25,15 +82,26 @@ export function registerUploadTools(server: McpServer): void {
     'transkribus_upload_create_structure',
     {
       title: 'Create Upload Structure',
-      description: 'Create upload document structure.',
+      description: 'Create an upload document structure describing pages to be uploaded.',
       inputSchema: z.object({
         collId: CollIdSchema,
         title: z.string().describe('Document title'),
-        nrOfPages: z.number().int().positive().describe('Number of pages'),
+        author: z.string().optional().describe('Document author'),
+        description: z.string().optional().describe('Document description'),
+        relatedUploadId: IdSchema.optional().describe('ID of a related upload'),
+        pages: z.array(z.object({
+          fileName: z.string().describe('Page image file name (e.g. "0001.jpg")'),
+          pageNr: z.number().int().positive().describe('Page number (1-based)'),
+          pageXmlName: z.string().optional().describe('PAGE XML file name for this page'),
+        })).min(1).describe('Ordered list of pages in this upload structure'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
-    handleToolRequest(async (params) => transkribusRequest('POST', '/uploads', params))
+    handleToolRequest(async (params) => {
+      const { collId, ...descriptor } = params;
+      const body = buildUploadDescriptor(descriptor);
+      return transkribusRequest('POST', '/uploads', body, { collId });
+    })
   );
 
   // 3. GET /uploads/metadata/documents
@@ -55,13 +123,23 @@ export function registerUploadTools(server: McpServer): void {
     'transkribus_upload_bulk_update_doc_metadata',
     {
       title: 'Bulk Update Document Metadata',
-      description: 'Bulk update document metadata for uploads.',
+      description: 'Bulk update document metadata for uploads from a CSV payload.',
       inputSchema: z.object({
-        metadata: z.array(z.record(z.string(), z.unknown())).describe('Array of document metadata objects to update'),
+        csv: z.string().optional().describe(
+          'Inline CSV content. Exactly one of "csv" or "csvFilePath" is required.'
+        ),
+        csvFilePath: z.string().optional().describe(
+          'Absolute path to a local CSV file. Exactly one of "csv" or "csvFilePath" is required.'
+        ),
+      }).refine((v) => exactlyOneOf(v.csv, v.csvFilePath), {
+        message: 'Provide exactly one of "csv" or "csvFilePath".',
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
-    handleToolRequest(async (params) => transkribusRequest('POST', '/uploads/metadata/documents', params.metadata))
+    handleToolRequest(async (params) => {
+      const csv = resolveTextPayload(params.csv, params.csvFilePath, 'csv', 'csvFilePath');
+      return transkribusRequest('POST', '/uploads/metadata/documents', csv, undefined, { 'Content-Type': 'text/csv' });
+    })
   );
 
   // 5. GET /uploads/metadata/isad
@@ -83,13 +161,23 @@ export function registerUploadTools(server: McpServer): void {
     'transkribus_upload_bulk_update_isad_metadata',
     {
       title: 'Bulk Update ISAD Metadata',
-      description: 'Bulk update ISAD(G) metadata for uploads.',
+      description: 'Bulk update ISAD(G) metadata for uploads from a CSV payload.',
       inputSchema: z.object({
-        metadata: z.array(z.record(z.string(), z.unknown())).describe('Array of ISAD metadata objects to update'),
+        csv: z.string().optional().describe(
+          'Inline CSV content. Exactly one of "csv" or "csvFilePath" is required.'
+        ),
+        csvFilePath: z.string().optional().describe(
+          'Absolute path to a local CSV file. Exactly one of "csv" or "csvFilePath" is required.'
+        ),
+      }).refine((v) => exactlyOneOf(v.csv, v.csvFilePath), {
+        message: 'Provide exactly one of "csv" or "csvFilePath".',
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
-    handleToolRequest(async (params) => transkribusRequest('POST', '/uploads/metadata/isad', params.metadata))
+    handleToolRequest(async (params) => {
+      const csv = resolveTextPayload(params.csv, params.csvFilePath, 'csv', 'csvFilePath');
+      return transkribusRequest('POST', '/uploads/metadata/isad', csv, undefined, { 'Content-Type': 'text/csv+isad' });
+    })
   );
 
   // 7. POST /uploads/s3
@@ -135,16 +223,21 @@ export function registerUploadTools(server: McpServer): void {
     'transkribus_upload_page',
     {
       title: 'Upload Page',
-      description: 'Upload a page to an existing upload.',
+      description: 'Upload a page image (and optional PAGE XML) to an existing upload.',
       inputSchema: z.object({
         uploadId: IdSchema,
-        pageData: z.record(z.string(), z.unknown()).optional().describe('Page upload data'),
+        imagePath: z.string().describe('Absolute local path to the page image file'),
+        pageXmlPath: z.string().optional().describe('Absolute local path to a PAGE XML file for this page'),
+        fileName: z.string().optional().describe('File name for the image part, overriding the local file\'s basename'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     handleToolRequest(async (params) => {
-      const { uploadId, ...body } = params;
-      return transkribusRequest('PUT', `/uploads/${uploadId}`, body.pageData);
+      const { uploadId, imagePath, pageXmlPath, fileName } = params;
+      const form = new FormData();
+      appendFilePart(form, 'img', imagePath, fileName);
+      if (pageXmlPath) appendFilePart(form, 'xml', pageXmlPath);
+      return transkribusUpload(`/uploads/${uploadId}`, form, undefined, 'PUT');
     })
   );
 

@@ -778,7 +778,8 @@ export async function transkribusRequest<T = unknown>(
   method: Method,
   path: string,
   data?: unknown,
-  params?: Record<string, unknown>
+  params?: Record<string, unknown>,
+  headers?: Record<string, string>
 ): Promise<T> {
   await ensureSession();
   try {
@@ -788,6 +789,7 @@ export async function transkribusRequest<T = unknown>(
       url: path,
       data,
       params: params ? stripUndefined(params) : undefined,
+      headers,
     });
     return response.data;
   } catch (err) {
@@ -795,15 +797,31 @@ export async function transkribusRequest<T = unknown>(
   }
 }
 
+/** Multipart client for the ingestion endpoints (`PUT /uploads/{uploadId}`,
+ *  `POST /collections/{collId}/createDocFromMets`).
+ *
+ *  GOTCHA: the explicit `multipart/form-data` header is LOAD-BEARING, not
+ *  redundant. `baseClientConfig()` sets a default `Content-Type:
+ *  application/json`, and axios's request transform runs
+ *  `hasJSONContentType ? JSON.stringify(formDataToJSON(data)) : data` — so
+ *  without this override a FormData body is silently serialized to the JSON
+ *  literal `{"img":{}}` and no file bytes ever reach the wire. With the
+ *  override present axios takes its spec-compliant-FormData branch and REPLACES
+ *  this header with the boundary-carrying one it generates. Deleting it looks
+ *  like a cleanup and breaks every upload. */
 export async function transkribusUpload<T = unknown>(
   path: string,
   formData: FormData,
-  params?: Record<string, unknown>
+  params?: Record<string, unknown>,
+  method: 'POST' | 'PUT' = 'POST'
 ): Promise<T> {
   await ensureSession();
   try {
     const client = getClient();
-    const response = await client.post<T>(path, formData, {
+    const response = await client.request<T>({
+      method,
+      url: path,
+      data: formData,
       headers: { 'Content-Type': 'multipart/form-data' },
       params: params ? stripUndefined(params) : undefined,
     });

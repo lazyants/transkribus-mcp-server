@@ -1,8 +1,9 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { transkribusRequest } from '../services/transkribus.js';
+import { transkribusRequest, transkribusUpload } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
 import { CollIdSchema, DocIdSchema, PaginationParams } from '../schemas/common.js';
+import { appendFilePart, appendTextPart, exactlyOneOf } from '../uploads-io.js';
 
 export function registerCollectionCoreTools(server: McpServer): void {
   // 1. GET /collections
@@ -349,6 +350,8 @@ export function registerCollectionCoreTools(server: McpServer): void {
   );
 
   // 19. POST /collections/{collId}/createDocFromIiifUrl
+  // GOTCHA: no request body — `url` goes in the `fileName` query param, unencoded
+  // (axios encodes query values once, matching what the server expects).
   server.registerTool(
     'transkribus_coll_create_doc_from_iiif',
     {
@@ -357,14 +360,14 @@ export function registerCollectionCoreTools(server: McpServer): void {
       inputSchema: z.object({
         collId: CollIdSchema,
         url: z.string().url().describe('IIIF manifest URL'),
-        title: z.string().optional().describe('Document title'),
-        fileName: z.string().optional().describe('File name for the document'),
+        canvasFilenameReference: z.string().optional().describe('Canvas filename reference'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     handleToolRequest(async (params) => {
-      const { collId, fileName, ...body } = params;
-      return transkribusRequest('POST', `/collections/${collId}/createDocFromIiifUrl`, body, { fileName });
+      const { collId, url, canvasFilenameReference } = params;
+      return transkribusRequest('POST', `/collections/${collId}/createDocFromIiifUrl`, undefined,
+        { fileName: url, canvasFilenameReference });
     })
   );
 
@@ -373,21 +376,31 @@ export function registerCollectionCoreTools(server: McpServer): void {
     'transkribus_coll_create_doc_from_mets',
     {
       title: 'Create Document from METS',
-      description: 'Create a document in a collection from METS metadata.',
+      description: 'Create a document in a collection from a METS XML document, uploaded as multipart form data. Provide exactly one of metsXml or metsFilePath.',
       inputSchema: z.object({
         collId: CollIdSchema,
-        title: z.string().optional().describe('Document title'),
-        fileName: z.string().optional().describe('METS file name'),
+        metsXml: z.string().optional().describe('Inline METS XML content'),
+        metsFilePath: z.string().optional().describe('Local file path to a METS XML file'),
+      }).refine((v) => exactlyOneOf(v.metsXml, v.metsFilePath), {
+        message: 'Provide exactly one of "metsXml" or "metsFilePath".',
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     handleToolRequest(async (params) => {
-      const { collId, ...body } = params;
-      return transkribusRequest('POST', `/collections/${collId}/createDocFromMets`, body);
+      const { collId, metsXml, metsFilePath } = params;
+      const form = new FormData();
+      if (metsFilePath !== undefined) {
+        appendFilePart(form, 'mets', metsFilePath);
+      } else {
+        appendTextPart(form, 'mets', metsXml as string, 'mets.xml');
+      }
+      return transkribusUpload(`/collections/${collId}/createDocFromMets`, form);
     })
   );
 
   // 21. POST /collections/{collId}/createDocFromMetsUrl
+  // GOTCHA: no request body — `url` goes in the `fileName` query param, unencoded
+  // (axios encodes query values once, matching what the server expects).
   server.registerTool(
     'transkribus_coll_create_doc_from_mets_url',
     {
@@ -396,33 +409,12 @@ export function registerCollectionCoreTools(server: McpServer): void {
       inputSchema: z.object({
         collId: CollIdSchema,
         url: z.string().url().describe('METS URL'),
-        title: z.string().optional().describe('Document title'),
-        fileName: z.string().optional().describe('File name for the document'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     handleToolRequest(async (params) => {
-      const { collId, fileName, ...body } = params;
-      return transkribusRequest('POST', `/collections/${collId}/createDocFromMetsUrl`, body, { fileName });
-    })
-  );
-
-  // 22. POST /collections/{collId}/createDocFromPdf
-  server.registerTool(
-    'transkribus_coll_create_doc_from_pdf',
-    {
-      title: 'Create Document from PDF',
-      description: 'Create a document in a collection from a PDF file.',
-      inputSchema: z.object({
-        collId: CollIdSchema,
-        title: z.string().optional().describe('Document title'),
-        fileName: z.string().optional().describe('PDF file name'),
-      }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-    },
-    handleToolRequest(async (params) => {
-      const { collId, ...body } = params;
-      return transkribusRequest('POST', `/collections/${collId}/createDocFromPdf`, body);
+      const { collId, url } = params;
+      return transkribusRequest('POST', `/collections/${collId}/createDocFromMetsUrl`, undefined, { fileName: url });
     })
   );
 
@@ -521,7 +513,6 @@ export function registerCollectionCoreTools(server: McpServer): void {
       description: 'Ingest a document into a collection from an FTP source.',
       inputSchema: z.object({
         collId: CollIdSchema,
-        title: z.string().optional().describe('Document title'),
         fileName: z.string().optional().describe('File name on FTP'),
         checkForDuplicateTitle: z.boolean().optional().default(true).describe('Check for duplicate title'),
         doDeleteImportSource: z.boolean().optional().describe('Delete import source after ingest'),
@@ -529,8 +520,9 @@ export function registerCollectionCoreTools(server: McpServer): void {
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     handleToolRequest(async (params) => {
-      const { collId, checkForDuplicateTitle, doDeleteImportSource, ...body } = params;
-      return transkribusRequest('POST', `/collections/${collId}/ingest`, body, { checkForDuplicateTitle, doDeleteImportSource });
+      const { collId, fileName, checkForDuplicateTitle, doDeleteImportSource } = params;
+      return transkribusRequest('POST', `/collections/${collId}/ingest`, undefined,
+        { fileName, checkForDuplicateTitle, doDeleteImportSource });
     })
   );
 
@@ -693,46 +685,6 @@ export function registerCollectionCoreTools(server: McpServer): void {
     handleToolRequest(async (params) => {
       const { collId, ...body } = params;
       return transkribusRequest('POST', `/collections/${collId}/modifyCollection`, body);
-    })
-  );
-
-  // 36. POST /collections/{collId}/upload
-  server.registerTool(
-    'transkribus_coll_upload_doc',
-    {
-      title: 'Upload Document',
-      description: 'Upload a document to a collection.',
-      inputSchema: z.object({
-        collId: CollIdSchema,
-        title: z.string().optional().describe('Document title'),
-        author: z.string().optional().describe('Document author'),
-        description: z.string().optional().describe('Document description'),
-      }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-    },
-    handleToolRequest(async (params) => {
-      const { collId, ...body } = params;
-      return transkribusRequest('POST', `/collections/${collId}/upload`, body);
-    })
-  );
-
-  // 37. POST /collections/{collId}/uploadMultipart
-  server.registerTool(
-    'transkribus_coll_upload_doc_multipart',
-    {
-      title: 'Upload Document (Multipart)',
-      description: 'Upload a document to a collection using multipart form data.',
-      inputSchema: z.object({
-        collId: CollIdSchema,
-        title: z.string().optional().describe('Document title'),
-        author: z.string().optional().describe('Document author'),
-        description: z.string().optional().describe('Document description'),
-      }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-    },
-    handleToolRequest(async (params) => {
-      const { collId, ...body } = params;
-      return transkribusRequest('POST', `/collections/${collId}/uploadMultipart`, body);
     })
   );
 
