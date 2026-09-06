@@ -173,10 +173,18 @@ async function login(): Promise<string> {
   if (!creds.user || !creds.password) {
     // A snapshot taken when only a session id was configured has no login pair,
     // and that session has now expired. Re-read both sources before giving up,
-    // so a user and password added after startup are picked up rather than
-    // needing a restart.
+    // so credentials provided after startup are picked up rather than needing a
+    // restart.
     invalidateCredentials();
     creds = await getCredentials();
+
+    // What was provided may be a REPLACEMENT SESSION rather than a login pair:
+    // a session-id-only setup rotates the entry (or the env var) and expects the
+    // running server to use it. Adopt it, and skip the account login this
+    // function exists for. The identity check matters — re-adopting the very
+    // session that just produced the 401 would hand the caller a credential
+    // already known to be dead.
+    if (creds.sessionId && creds.sessionId !== sessionId) return creds.sessionId;
   }
   if (!creds.user || !creds.password) {
     throw new Error(

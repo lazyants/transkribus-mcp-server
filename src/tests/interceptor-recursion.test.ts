@@ -186,4 +186,37 @@ describe('interceptor recursion (#30) — real adapter, genuine interceptor pipe
     expect(await transkribusRequest('GET', '/collections')).toEqual({ ok: true });
     expect(loginHits).toBe(1);
   });
+
+  it('Test D — a rotated session id is adopted without an account login', async () => {
+    // The other half of the same setup: no user or password anywhere, and the
+    // fix for it is a replacement session rather than a login pair.
+    delete process.env.TRANSKRIBUS_USER;
+    delete process.env.TRANSKRIBUS_PASSWORD;
+
+    let loginHits = 0;
+    setAdapter(async (config) => {
+      const url = config.url as string;
+      if (url === '/auth/login') {
+        loginHits++;
+        return { status: 200, statusText: 'OK', headers: {}, config, data: { sessionId: 'from-login' } };
+      }
+      const cookie = String((config.headers as Record<string, unknown> | undefined)?.Cookie ?? '');
+      if (!cookie.includes('rotated-session-id')) throw make401(config);
+      return { status: 200, statusText: 'OK', headers: {}, config, data: { ok: true } };
+    });
+
+    const { transkribusRequest } = await import('../services/transkribus.js');
+
+    // The configured session is stale and there is nothing to log in with.
+    expect(await transkribusRequest('GET', '/collections').catch((e: unknown) => e)).toBeInstanceOf(
+      Error
+    );
+
+    // The user replaces the session id instead of adding an account.
+    process.env.TRANSKRIBUS_SESSION_ID = 'rotated-session-id';
+
+    expect(await transkribusRequest('GET', '/collections')).toEqual({ ok: true });
+    // Adopted directly — no account login was attempted, and none was possible.
+    expect(loginHits).toBe(0);
+  });
 });
