@@ -119,11 +119,14 @@ describe('transkribus client — initial login failure cookie redaction', () => 
     const thrown = await transkribusRequest('GET', '/collections').catch((e: unknown) => e);
 
     expect(thrown).toBeInstanceOf(AxiosError);
-    expect(mockPost).toHaveBeenCalledWith('/auth/login', expect.any(String), expect.any(Object));
-
-    // Non-vacuity guard for the password assertions below: the sentinel really is
-    // the credential login() sent, so a clean error is redaction, not absence.
-    expect(mockPost.mock.calls[0][1]).toContain(PASSWORD_VALUE);
+    // The body match is also the non-vacuity guard for the password assertions
+    // below: the sentinel really is the credential login() sent, so a clean error
+    // means redaction rather than the value never having been there.
+    expect(mockPost).toHaveBeenCalledWith(
+      '/auth/login',
+      expect.stringContaining(PASSWORD_VALUE),
+      expect.any(Object),
+    );
 
     const inspected = util.inspect(thrown, { depth: null });
     expect(inspected).not.toContain('JSESSIONID');
