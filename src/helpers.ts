@@ -34,3 +34,22 @@ export function handleToolRequest(fn: (params: any) => Promise<unknown>) {
     }
   };
 }
+
+/**
+ * Like handleToolRequest, but for a tool whose callback builds the CallToolResult
+ * itself — an image content block cannot come out of formatResponse's JSON path.
+ * Error handling is identical, so both wrappers fail the same way.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function handleRawToolRequest(fn: (params: any) => Promise<CallToolResult>) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return async (params: any) => {
+    try {
+      return await fn(params);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[transkribus-mcp] Tool error: ${message}`);
+      return toolError(err);
+    }
+  };
+}

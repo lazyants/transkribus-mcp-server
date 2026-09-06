@@ -2,7 +2,136 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { transkribusRequest } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
-import { CollIdSchema, DocIdSchema, PaginationParams } from '../schemas/common.js';
+import { CollIdSchema, DocIdSchema, PageNrSchema, PaginationParams, intCoerce } from '../schemas/common.js';
+
+/** How many pages one transkribus_doc_get_plaintext call will fetch. A clamp, not
+ *  an error: the result reports nextStartPage so a long document is read in
+ *  successive calls instead of failing. */
+export const MAX_PAGES_PER_CALL = 100;
+export const DEFAULT_MAX_CHARS = 100_000;
+/** Parallel plaintext requests. Sequential is the 200-round-trip problem being
+ *  fixed; unbounded fan-out just earns 429s. */
+const PLAINTEXT_CONCURRENCY = 5;
+
+/** Page numbers out of a fulldoc response: { md, pageList: { pages: [{ pageNr }] } }. */
+export function extractPageNumbers(fulldoc: unknown): number[] {
+  const pages = (fulldoc as { pageList?: { pages?: unknown } } | null)?.pageList?.pages;
+  if (!Array.isArray(pages)) return [];
+  const numbers = pages
+    .map((page) => (page as { pageNr?: unknown } | null)?.pageNr)
+    .filter((nr): nr is number => typeof nr === 'number' && Number.isFinite(nr));
+  return [...new Set(numbers)].sort((a, b) => a - b);
+}
+
+/** The pages this call will fetch, plus the ones the page clamp left behind.
+ *  Works on the document's OWN page numbers, so sparse or non-contiguous
+ *  numbering needs no special case. */
+export function selectPageRange(
+  all: number[],
+  startPage?: number,
+  endPage?: number,
+  maxPages: number = MAX_PAGES_PER_CALL
+): { pages: number[]; omitted: number[] } {
+  const eligible = all.filter(
+    (nr) => (startPage === undefined || nr >= startPage) && (endPage === undefined || nr <= endPage)
+  );
+  return { pages: eligible.slice(0, maxPages), omitted: eligible.slice(maxPages) };
+}
+
+export interface PlaintextPageEntry {
+  pageNr: number;
+  text?: string;
+  error?: string;
+}
+
+/** Concatenate page texts under a character budget. The budget counts the
+ *  separators and newlines too — it bounds what the CLIENT receives, not just the
+ *  transcript bytes. The first page is always included whole even when it alone
+ *  blows the budget: dropping it would leave no way to read that page at all. */
+export function buildPlaintextDocument(
+  entries: PlaintextPageEntry[],
+  maxChars: number
+): { text: string; used: PlaintextPageEntry[]; nextStartPage?: number } {
+  const chunks: string[] = [];
+  const used: PlaintextPageEntry[] = [];
+  let length = 0;
+
+  for (const entry of entries) {
+    const chunk = `--- page ${entry.pageNr} ---\n${entry.error ? `[error: ${entry.error}]` : entry.text ?? ''}\n`;
+    if (used.length > 0 && length + chunk.length > maxChars) {
+      return { text: chunks.join(''), used, nextStartPage: entry.pageNr };
+    }
+    chunks.push(chunk);
+    used.push(entry);
+    length += chunk.length;
+  }
+
+  return { text: chunks.join(''), used };
+}
+
+/** Run `task` over `items` with at most `limit` in flight, preserving input order. */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  task: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const index = cursor++;
+      if (index >= items.length) return;
+      results[index] = await task(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+export interface DocPlaintextDeps {
+  getFulldoc: () => Promise<unknown>;
+  getPagePlaintext: (pageNr: number) => Promise<unknown>;
+}
+
+export async function fetchDocPlaintext(
+  deps: DocPlaintextDeps,
+  params: { collId: number; id: number; startPage?: number; endPage?: number; maxChars: number }
+): Promise<Record<string, unknown>> {
+  const allPages = extractPageNumbers(await deps.getFulldoc());
+  const { pages, omitted } = selectPageRange(allPages, params.startPage, params.endPage);
+
+  const entries = await mapWithConcurrency(pages, PLAINTEXT_CONCURRENCY, async (pageNr) => {
+    try {
+      const text = await deps.getPagePlaintext(pageNr);
+      return { pageNr, text: typeof text === 'string' ? text : JSON.stringify(text) };
+    } catch (err) {
+      // One untranscribed or failing page must not cost the caller the other 99.
+      return { pageNr, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  const { text, used, nextStartPage } = buildPlaintextDocument(entries, params.maxChars);
+  // Either budget can stop the walk: the char budget names the page it stopped
+  // before, the page clamp names the first page it never fetched.
+  const next = nextStartPage ?? omitted[0];
+
+  return {
+    collId: params.collId,
+    docId: params.id,
+    startPage: used[0]?.pageNr ?? null,
+    endPage: used[used.length - 1]?.pageNr ?? null,
+    pageCount: used.length,
+    charCount: text.length,
+    truncated: next !== undefined,
+    ...(next !== undefined ? { nextStartPage: next } : {}),
+    pages: used.map(({ pageNr, error }) => ({
+      pageNr,
+      chars: entries.find((e) => e.pageNr === pageNr)?.text?.length ?? 0,
+      ...(error ? { error } : {}),
+    })),
+    text,
+  };
+}
 
 export function registerCollectionDocumentTools(server: McpServer): void {
   // 1. DELETE /collections/{collId}/{id}
@@ -189,7 +318,48 @@ export function registerCollectionDocumentTools(server: McpServer): void {
     })
   );
 
-  // 9. GET /collections/{collId}/{id}/fulldoc
+  // 9. Whole-document plaintext: fulldoc for the page list, then one plaintext
+  //    request per page (no single REST endpoint returns a whole document's text).
+  server.registerTool(
+    'transkribus_doc_get_plaintext',
+    {
+      title: 'Get Document Plaintext',
+      description:
+        'Get the transcribed text of a whole document in one call, with "--- page N ---" separators. ' +
+        `Fetches at most ${MAX_PAGES_PER_CALL} pages and ${DEFAULT_MAX_CHARS} characters per call; when more remain, the result carries nextStartPage.`,
+      inputSchema: z.object({
+        collId: CollIdSchema,
+        id: DocIdSchema,
+        startPage: PageNrSchema.optional().describe('First page to include (default: the document\'s first page)'),
+        endPage: PageNrSchema.optional().describe('Last page to include, inclusive (default: the document\'s last page)'),
+        maxChars: intCoerce(z.number().int().min(1_000).max(1_000_000)).optional()
+          .describe(`Character budget for the returned text, separators included (default ${DEFAULT_MAX_CHARS})`),
+      }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    handleToolRequest(async (params) =>
+      fetchDocPlaintext(
+        {
+          getFulldoc: () =>
+            transkribusRequest('GET', `/collections/${params.collId}/${params.id}/fulldoc`, undefined, {
+              nrOfTranscripts: 0,
+              stats: false,
+            }),
+          getPagePlaintext: (pageNr) =>
+            transkribusRequest('GET', `/collections/${params.collId}/${params.id}/${pageNr}/plaintext`),
+        },
+        {
+          collId: params.collId,
+          id: params.id,
+          startPage: params.startPage,
+          endPage: params.endPage,
+          maxChars: params.maxChars ?? DEFAULT_MAX_CHARS,
+        }
+      )
+    )
+  );
+
+  // 10. GET /collections/{collId}/{id}/fulldoc
   server.registerTool(
     'transkribus_doc_get_fulldoc',
     {
@@ -210,7 +380,7 @@ export function registerCollectionDocumentTools(server: McpServer): void {
     })
   );
 
-  // 10. GET /collections/{collId}/{id}/fulldoc.xml
+  // 11. GET /collections/{collId}/{id}/fulldoc.xml
   server.registerTool(
     'transkribus_doc_get_fulldoc_xml',
     {
@@ -229,7 +399,7 @@ export function registerCollectionDocumentTools(server: McpServer): void {
     })
   );
 
-  // 11. GET /collections/{collId}/{id}/hasAffiliation
+  // 12. GET /collections/{collId}/{id}/hasAffiliation
   server.registerTool(
     'transkribus_doc_has_affiliation',
     {
@@ -247,7 +417,7 @@ export function registerCollectionDocumentTools(server: McpServer): void {
     })
   );
 
-  // 12. GET /collections/{collId}/{id}/imageNames
+  // 13. GET /collections/{collId}/{id}/imageNames
   server.registerTool(
     'transkribus_doc_get_image_names',
     {
@@ -266,7 +436,7 @@ export function registerCollectionDocumentTools(server: McpServer): void {
   );
 
   // GOTCHA: WADL declares kwsSearch as POST (not GET) — query goes in body, not query string.
-  // 13. POST /collections/{collId}/{id}/kwsSearch
+  // 14. POST /collections/{collId}/{id}/kwsSearch
   server.registerTool(
     'transkribus_doc_kws_search',
     {
@@ -285,7 +455,7 @@ export function registerCollectionDocumentTools(server: McpServer): void {
     })
   );
 
-  // 14. GET /collections/{collId}/{id}/list
+  // 15. GET /collections/{collId}/{id}/list
   server.registerTool(
     'transkribus_doc_list_pages',
     {
@@ -304,7 +474,7 @@ export function registerCollectionDocumentTools(server: McpServer): void {
     })
   );
 
-  // 15. GET /collections/{collId}/{id}/metadata
+  // 16. GET /collections/{collId}/{id}/metadata
   server.registerTool(
     'transkribus_doc_get_metadata',
     {
@@ -322,7 +492,7 @@ export function registerCollectionDocumentTools(server: McpServer): void {
     })
   );
 
-  // 16. POST /collections/{collId}/{id}/metadata
+  // 17. POST /collections/{collId}/{id}/metadata
   server.registerTool(
     'transkribus_doc_update_metadata',
     {
@@ -343,7 +513,7 @@ export function registerCollectionDocumentTools(server: McpServer): void {
     })
   );
 
-  // 17. GET /collections/{collId}/{id}/mets
+  // 18. GET /collections/{collId}/{id}/mets
   server.registerTool(
     'transkribus_doc_get_mets',
     {
@@ -361,7 +531,7 @@ export function registerCollectionDocumentTools(server: McpServer): void {
     })
   );
 
-  // 18. GET /collections/{collId}/{id}/pageIds
+  // 19. GET /collections/{collId}/{id}/pageIds
   server.registerTool(
     'transkribus_doc_get_page_ids',
     {
@@ -380,7 +550,7 @@ export function registerCollectionDocumentTools(server: McpServer): void {
     })
   );
 
-  // 19. GET /collections/{collId}/{id}/pages
+  // 20. GET /collections/{collId}/{id}/pages
   server.registerTool(
     'transkribus_doc_get_pages',
     {
@@ -418,7 +588,7 @@ export function registerCollectionDocumentTools(server: McpServer): void {
     })
   );
 
-  // 20. DELETE /collections/{collId}/{id}/remove
+  // 21. DELETE /collections/{collId}/{id}/remove
   server.registerTool(
     'transkribus_doc_remove_from_collection',
     {
@@ -436,7 +606,7 @@ export function registerCollectionDocumentTools(server: McpServer): void {
     })
   );
 
-  // 21. GET /collections/{collId}/{id}/stats
+  // 22. GET /collections/{collId}/{id}/stats
   server.registerTool(
     'transkribus_doc_get_stats',
     {
@@ -454,7 +624,7 @@ export function registerCollectionDocumentTools(server: McpServer): void {
     })
   );
 
-  // 22. GET /collections/{collId}/{id}/testSet
+  // 23. GET /collections/{collId}/{id}/testSet
   server.registerTool(
     'transkribus_doc_get_test_set',
     {
@@ -472,7 +642,7 @@ export function registerCollectionDocumentTools(server: McpServer): void {
     })
   );
 
-  // 23. GET /collections/{collId}/{id}/trainData
+  // 24. GET /collections/{collId}/{id}/trainData
   server.registerTool(
     'transkribus_doc_get_train_data',
     {
@@ -490,7 +660,7 @@ export function registerCollectionDocumentTools(server: McpServer): void {
     })
   );
 
-  // 24. GET /collections/{collId}/{id}/transcriptIds
+  // 25. GET /collections/{collId}/{id}/transcriptIds
   server.registerTool(
     'transkribus_doc_get_transcript_ids',
     {
@@ -514,7 +684,7 @@ export function registerCollectionDocumentTools(server: McpServer): void {
   );
 
   // GOTCHA: POST with mixed body+query params — destructure query params (e.g. fileName) before `...body` spread, or they get sent as body instead of query string.
-  // 25. POST /collections/{collId}/{id}/updateTranscript
+  // 26. POST /collections/{collId}/{id}/updateTranscript
   server.registerTool(
     'transkribus_doc_update_transcript',
     {
@@ -535,7 +705,7 @@ export function registerCollectionDocumentTools(server: McpServer): void {
     })
   );
 
-  // 26. GET /collections/{collId}/{id}/validationData
+  // 27. GET /collections/{collId}/{id}/validationData
   server.registerTool(
     'transkribus_doc_get_validation_data',
     {
@@ -553,7 +723,7 @@ export function registerCollectionDocumentTools(server: McpServer): void {
     })
   );
 
-  // 27. POST /collections/{collId}/{id}/imageNames
+  // 28. POST /collections/{collId}/{id}/imageNames
   server.registerTool(
     'transkribus_doc_move_pages_by_image_names',
     {
@@ -572,7 +742,7 @@ export function registerCollectionDocumentTools(server: McpServer): void {
     })
   );
 
-  // 28. POST /collections/{collId}/{id}/list
+  // 29. POST /collections/{collId}/{id}/list
   server.registerTool(
     'transkribus_doc_update_metadata_v2',
     {

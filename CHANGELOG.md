@@ -10,6 +10,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `transkribus_job_wait` — polls a job until it reaches `FINISHED`, `FAILED` or
+  `CANCELED`, so an LLM client no longer burns a turn per "still RUNNING" poll.
+  When the finished job's `result` carries an `http(s)` URL — an export's ZIP or
+  PDF, typically — it is surfaced as `downloadUrl` instead of being left for the
+  caller to dig out of the raw job JSON. The wall-clock budget is enforced by
+  racing each poll against one absolute deadline rather than by adding up
+  sleeps: the shared HTTP client can spend unbounded time in a login, a 401
+  re-login or a 429 backoff, and none of those are individually bounded. A
+  timed-out result is a normal result, not an error — call again to keep
+  waiting. Defaults: poll every 5s, wait up to 30s, which returns before the MCP
+  SDK's 60s default client timeout.
+- `transkribus_doc_get_plaintext` — the transcribed text of a whole document in
+  one call with `--- page N ---` separators, replacing one tool call per page.
+  Bounded by both a 100-page and a 100 000-character budget per call; when
+  either stops the walk the result carries `nextStartPage`, so a long document
+  is read in successive calls rather than failing. A page that has no transcript
+  is reported inline and does not abort the rest of the document.
+- `transkribus_page_get_image` — a page scan as an MCP image content block, so a
+  multimodal client can look at the manuscript next to its HTR output.
+  Thumbnail by default. The image URL comes from the API's own page metadata and
+  is downloaded with a bare HTTP client: no session cookie reaches the image
+  host, only `https` on `transkribus.eu` (or a subdomain) is accepted, that check
+  runs again on every redirect hop, the response must be an `image/*`, and a
+  byte cap (5 MB by default) is enforced while the response accumulates.
+
 ## [3.1.0] — 2026-08-20
 
 ### Added
