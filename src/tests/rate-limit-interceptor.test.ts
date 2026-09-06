@@ -61,16 +61,33 @@ function make429(config: Record<string, unknown>, retryAfter?: string): AxiosErr
   );
 }
 
-// One 429 carrying `retryAfter`, then a 200. Returns a hit counter so a test can
-// assert WHEN the retry happened, not merely that it happened.
-function rateLimitOnceThenSucceed(retryAfter?: string): { hits: () => number } {
+// Drives the whole scenario for one Retry-After value: a single 429 carrying that
+// header, then a 200, with the retry asserted to land at EXACTLY `delayMs`. The
+// hit counter is what lets us assert WHEN the retry happened, not merely that it
+// happened, and the split advance (delayMs - 1, then 1) is what distinguishes a
+// correct wait from the #31 immediate retry.
+async function expectRetryFiresAfter(
+  retryAfter: string | undefined,
+  delayMs: number
+): Promise<void> {
   let hits = 0;
   setAdapter(async (config) => {
     hits++;
     if (hits === 1) throw make429(config, retryAfter);
     return { status: 200, statusText: 'OK', headers: {}, config, data: { ok: true } };
   });
-  return { hits: () => hits };
+
+  const { transkribusRequest } = await import('../services/transkribus.js');
+  // Per the fake-timer GOTCHA above: `pending` is STARTED and held, never awaited
+  // until the clock has been advanced past the interceptor's setTimeout.
+  const pending = transkribusRequest('GET', '/collections');
+
+  await vi.advanceTimersByTimeAsync(delayMs - 1);
+  expect(hits).toBe(1); // still waiting — this is what the bug broke
+
+  await vi.advanceTimersByTimeAsync(1);
+  await expect(pending).resolves.toEqual({ ok: true });
+  expect(hits).toBe(2);
 }
 
 describe('429 rate-limit interceptor (#31) — real adapter, genuine interceptor pipeline', () => {
@@ -110,61 +127,21 @@ describe('429 rate-limit interceptor (#31) — real adapter, genuine interceptor
     // 30s after the frozen clock. Pre-fix, parseInt('Thu, ...') was NaN and
     // setTimeout(NaN) fired at once, so the retry landed inside the rate-limit
     // window — hits would already be 2 at t+0.
-    const { hits } = rateLimitOnceThenSucceed('Thu, 01 Jan 2026 00:00:30 GMT');
-
-    const { transkribusRequest } = await import('../services/transkribus.js');
-    const pending = transkribusRequest('GET', '/collections');
-
-    await vi.advanceTimersByTimeAsync(29_999);
-    expect(hits()).toBe(1); // still waiting — this is what the bug broke
-
-    await vi.advanceTimersByTimeAsync(1);
-    await expect(pending).resolves.toEqual({ ok: true });
-    expect(hits()).toBe(2);
+    await expectRetryFiresAfter('Thu, 01 Jan 2026 00:00:30 GMT', 30_000);
   });
 
   it('waits exactly the delta-seconds Retry-After', async () => {
-    const { hits } = rateLimitOnceThenSucceed('2');
-
-    const { transkribusRequest } = await import('../services/transkribus.js');
-    const pending = transkribusRequest('GET', '/collections');
-
-    await vi.advanceTimersByTimeAsync(1_999);
-    expect(hits()).toBe(1);
-
-    await vi.advanceTimersByTimeAsync(1);
-    await expect(pending).resolves.toEqual({ ok: true });
-    expect(hits()).toBe(2);
+    await expectRetryFiresAfter('2', 2_000);
   });
 
   it('falls back to exponential backoff when Retry-After is unparseable', async () => {
     // An unparseable header must behave exactly like an absent one: 2^0 * 1000ms
     // on the first retry. Pre-fix this was parseInt('soon') → NaN → immediate.
-    const { hits } = rateLimitOnceThenSucceed('soon');
-
-    const { transkribusRequest } = await import('../services/transkribus.js');
-    const pending = transkribusRequest('GET', '/collections');
-
-    await vi.advanceTimersByTimeAsync(999);
-    expect(hits()).toBe(1);
-
-    await vi.advanceTimersByTimeAsync(1);
-    await expect(pending).resolves.toEqual({ ok: true });
-    expect(hits()).toBe(2);
+    await expectRetryFiresAfter('soon', 1_000);
   });
 
   it('falls back to exponential backoff when Retry-After is absent', async () => {
-    const { hits } = rateLimitOnceThenSucceed(undefined);
-
-    const { transkribusRequest } = await import('../services/transkribus.js');
-    const pending = transkribusRequest('GET', '/collections');
-
-    await vi.advanceTimersByTimeAsync(999);
-    expect(hits()).toBe(1);
-
-    await vi.advanceTimersByTimeAsync(1);
-    await expect(pending).resolves.toEqual({ ok: true });
-    expect(hits()).toBe(2);
+    await expectRetryFiresAfter(undefined, 1_000);
   });
 
   it('gives up after MAX_RETRIES retries and rejects with the rate-limit error', async () => {
