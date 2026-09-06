@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -121,6 +121,7 @@ beforeAll(() => {
 
 afterAll(() => {
   rig.server?.close();
+  rmSync(fixtureDir, { recursive: true, force: true });
   delete process.env.TRANSKRIBUS_SESSION_ID;
 });
 
@@ -260,6 +261,8 @@ describe('bulk metadata tools — CSV media types, not JSON', () => {
   it('sends text/csv for document metadata', async () => {
     await call(uploadTools, 'transkribus_upload_bulk_update_doc_metadata', { csv: 'docId,title\n1,A\n' });
     const req = lastRequest();
+    expect(req.method).toBe('POST');
+    expect(req.url).toBe('/rest/uploads/metadata/documents');
     expect(req.contentType).toContain('text/csv');
     expect(req.contentType).not.toContain('application/json');
     expect(req.body.toString('utf-8')).toBe('docId,title\n1,A\n');
@@ -267,7 +270,14 @@ describe('bulk metadata tools — CSV media types, not JSON', () => {
 
   it('sends text/csv+isad for ISAD metadata', async () => {
     await call(uploadTools, 'transkribus_upload_bulk_update_isad_metadata', { csv: 'a,b\n1,2\n' });
-    expect(lastRequest().contentType).toContain('text/csv+isad');
+
+    // The test server answers 200 on every route, so asserting the media type
+    // alone would also pass for an empty body sent to the wrong endpoint.
+    const req = lastRequest();
+    expect(req.method).toBe('POST');
+    expect(req.url).toBe('/rest/uploads/metadata/isad');
+    expect(req.contentType).toContain('text/csv+isad');
+    expect(req.body.toString('utf-8')).toBe('a,b\n1,2\n');
   });
 
   it('reads the CSV from a local file when given a path', async () => {

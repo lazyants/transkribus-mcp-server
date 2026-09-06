@@ -349,9 +349,9 @@ export function registerCollectionCoreTools(server: McpServer): void {
     })
   );
 
+  // 19. POST /collections/{collId}/createDocFromIiifUrl
   // GOTCHA: no request body — `url` goes in the `fileName` query param, unencoded
   // (axios encodes query values once, matching what the server expects).
-  // 19. POST /collections/{collId}/createDocFromIiifUrl
   server.registerTool(
     'transkribus_coll_create_doc_from_iiif',
     {
@@ -398,9 +398,9 @@ export function registerCollectionCoreTools(server: McpServer): void {
     })
   );
 
+  // 21. POST /collections/{collId}/createDocFromMetsUrl
   // GOTCHA: no request body — `url` goes in the `fileName` query param, unencoded
   // (axios encodes query values once, matching what the server expects).
-  // 21. POST /collections/{collId}/createDocFromMetsUrl
   server.registerTool(
     'transkribus_coll_create_doc_from_mets_url',
     {
