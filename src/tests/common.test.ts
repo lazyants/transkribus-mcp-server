@@ -11,7 +11,11 @@ import {
   ModelIdSchema,
   IdSchema,
   TranscriptIdSchema,
+  UserIdSchema,
   PaginationParams,
+  paginationIndex,
+  paginationNValues,
+  paginationWithDefaults,
   intCoerce,
   pathSeg,
   PathSegmentSchema,
@@ -344,5 +348,63 @@ describe('path segment guard — source-level exhaustive contract (independent o
     // drifts one of these counts away from 18 and fails here.
     expect(totalInterpolations).toBe(18);
     expect(totalSchemaDecls).toBe(18);
+  });
+});
+
+describe('UserIdSchema — int coercion (issue #33)', () => {
+  it('coerces string-encoded user IDs and keeps the CollIdSchema rejections', () => {
+    expect(UserIdSchema.parse('42')).toBe(42);
+    expect(UserIdSchema.parse(42)).toBe(42);
+    expect(UserIdSchema.safeParse('0').success).toBe(false);
+    expect(UserIdSchema.safeParse('-1').success).toBe(false);
+    expect(UserIdSchema.safeParse('').success).toBe(false);
+    expect(UserIdSchema.safeParse('abc').success).toBe(false);
+    expect(UserIdSchema.safeParse(true).success).toBe(false);
+    expect(UserIdSchema.safeParse('1.5').success).toBe(false);
+    expect(UserIdSchema.safeParse(undefined).success).toBe(false);
+  });
+
+  it('stays in JSON Schema required[] (the clearOptinMarker path)', () => {
+    const schema = z.toJSONSchema(z.object({ userid: UserIdSchema }), { io: 'input' });
+    expect(schema.required).toContain('userid');
+  });
+});
+
+describe('pagination factories — coercion WITHOUT losing the advertised default (issue #33)', () => {
+  it('coerces strings and still applies the runtime default', () => {
+    const obj = z.object({ index: paginationIndex(0), nValues: paginationNValues(-1) });
+    expect(obj.parse({})).toEqual({ index: 0, nValues: -1 });
+    expect(obj.parse({ index: undefined, nValues: undefined })).toEqual({ index: 0, nValues: -1 });
+    expect(obj.parse({ index: '3', nValues: '25' })).toEqual({ index: 3, nValues: 25 });
+    expect(obj.safeParse({ index: '' }).success).toBe(false);
+    expect(obj.safeParse({ index: true }).success).toBe(false);
+    expect(obj.safeParse({ index: '-1' }).success).toBe(false);
+  });
+
+  // REGRESSION GUARD for the zod 4 emit trap documented at the factories:
+  // JSON Schema emit in INPUT mode renders a z.preprocess pipe from its input
+  // leg and drops a `default` attached to any outer wrapper. The factories work
+  // around it by putting the default in .meta() on the INNER number schema. If a
+  // zod upgrade changes that, 34 advertised defaults vanish from tools/list with
+  // no other symptom — this test is the only thing that would notice.
+  it('advertises the default in the INPUT-mode JSON Schema tools/list emits', () => {
+    const schema = z.toJSONSchema(
+      z.object({ index: paginationIndex(0), nValues: paginationNValues(-1) }),
+      { io: 'input' },
+    );
+    const props = schema.properties as Record<string, Record<string, unknown>>;
+    expect(props.index.default).toBe(0);
+    expect(props.index.minimum).toBe(0);
+    expect(props.index.description).toBe('Start index (0-based)');
+    expect(props.nValues.default).toBe(-1);
+    expect(props.nValues.description).toBe('Number of results (-1 for all)');
+    expect(schema.required).toBeUndefined();
+  });
+
+  it('paginationWithDefaults carries the two sort fields through unchanged', () => {
+    const block = paginationWithDefaults({ index: 0, nValues: -1 });
+    expect(block.sortColumn).toBe(PaginationParams.sortColumn);
+    expect(block.sortDirection).toBe(PaginationParams.sortDirection);
+    expect(z.object(block).parse({ index: '7' })).toEqual({ index: 7, nValues: -1 });
   });
 });

@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { transkribusRequest } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
-import { IdSchema, PaginationParams } from '../schemas/common.js';
+import { CollIdSchema, IdSchema, PaginationParams } from '../schemas/common.js';
 
 export function registerKwsTools(server: McpServer): void {
   // 1. GET /kws/queries
@@ -29,7 +29,7 @@ export function registerKwsTools(server: McpServer): void {
       title: 'Create KWS Query',
       description: 'Create a new keyword spotting query.',
       inputSchema: z.object({
-        collId: z.number().int().positive().describe('Collection ID'),
+        collId: CollIdSchema,
         query: z.string().describe('Keyword query string'),
         id: z.number().int().positive().optional().describe('Limit to a specific document ID'),
       }),
@@ -46,8 +46,8 @@ export function registerKwsTools(server: McpServer): void {
       description: 'Get hits for a keyword spotting query.',
       inputSchema: z.object({
         id: IdSchema,
-        index: z.number().int().min(0).optional().describe('Start index (0-based)'),
-        nValues: z.number().int().optional().describe('Number of results'),
+        index: PaginationParams.index,
+        nValues: PaginationParams.nValues,
         keyword: z.string().optional().describe('Filter by keyword'),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },

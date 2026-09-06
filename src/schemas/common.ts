@@ -50,6 +50,7 @@ export const PageNrSchema = intCoerce(z.number().int().min(1)).describe('Page nu
 export const ModelIdSchema = intCoerce(z.number().int().positive()).describe('Model/HTR ID');
 export const IdSchema = intCoerce(z.number().int().positive()).describe('Resource ID');
 export const TranscriptIdSchema = intCoerce(z.number().int().positive()).describe('Transcript ID');
+export const UserIdSchema = intCoerce(z.number().int().positive()).describe('User ID');
 
 // Encodes a single path segment for interpolation into a REST URL template
 // (e.g. `/models/${pathSeg(type)}`). encodeURIComponent alone does NOT stop
@@ -79,3 +80,34 @@ export const PaginationParams = {
   sortColumn: z.string().optional().describe('Column to sort by'),
   sortDirection: z.string().optional().describe('Sort direction: asc or desc'),
 };
+
+// Pagination fields for the tools that ship a wire default for index/nValues.
+//
+// The default value has to be declared TWICE and that is not redundancy: zod 4
+// builds `intCoerce` as a z.preprocess pipe, and JSON Schema emit in INPUT mode
+// — the mode MCP `tools/list` uses — renders such a pipe from its input leg and
+// drops any `default` attached to an outer wrapper. Measured on zod 4.4.3:
+// `intCoerce(...).optional().default(0)` advertises no default at all, in every
+// ordering of .describe()/.default()/.meta(); only `.meta()` on the INNER number
+// schema survives the emit. So `.meta({ default })` supplies the ADVERTISED
+// default and `.default()` supplies the RUNTIME one. Dropping either silently
+// changes what clients see or what gets sent upstream — the same class of quiet
+// tools/list degradation as the `optin` marker cleared above.
+export const paginationIndex = (defaultValue: number) =>
+  intCoerce(z.number().int().min(0).meta({ default: defaultValue }))
+    .optional()
+    .default(defaultValue)
+    .describe('Start index (0-based)');
+
+export const paginationNValues = (defaultValue: number) =>
+  intCoerce(z.number().int().meta({ default: defaultValue }))
+    .optional()
+    .default(defaultValue)
+    .describe('Number of results (-1 for all)');
+
+export const paginationWithDefaults = (defaults: { index: number; nValues: number }) => ({
+  index: paginationIndex(defaults.index),
+  nValues: paginationNValues(defaults.nValues),
+  sortColumn: PaginationParams.sortColumn,
+  sortDirection: PaginationParams.sortDirection,
+});

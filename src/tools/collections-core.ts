@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { transkribusRequest } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
-import { CollIdSchema, DocIdSchema, PaginationParams } from '../schemas/common.js';
+import { CollIdSchema, DocIdSchema, PaginationParams, UserIdSchema, paginationWithDefaults } from '../schemas/common.js';
 
 export function registerCollectionCoreTools(server: McpServer): void {
   // 1. GET /collections
@@ -16,10 +16,7 @@ export function registerCollectionCoreTools(server: McpServer): void {
         filter: z.string().optional().describe('Filter string'),
         role: z.string().optional().describe('Filter by user role'),
         userid: z.number().int().optional().describe('Filter by user ID'),
-        index: z.number().int().optional().default(0).describe('Start index'),
-        nValues: z.number().int().optional().default(0).describe('Number of values'),
-        sortColumn: z.string().optional().describe('Column to sort by'),
-        sortDirection: z.string().optional().describe('Sort direction (asc/desc)'),
+        ...paginationWithDefaults({ index: 0, nValues: 0 }),
         favorites: z.boolean().optional().describe('Filter favorites only'),
         collId: z.string().optional().describe('Filter by collection ID'),
       }),
@@ -203,10 +200,7 @@ export function registerCollectionCoreTools(server: McpServer): void {
       title: 'List Collections (XML)',
       description: 'List all collections in XML format.',
       inputSchema: z.object({
-        index: z.number().int().optional().default(0).describe('Start index'),
-        nValues: z.number().int().optional().default(0).describe('Number of values'),
-        sortColumn: z.string().optional().describe('Column to sort by'),
-        sortDirection: z.string().optional().describe('Sort direction (asc/desc)'),
+        ...paginationWithDefaults({ index: 0, nValues: 0 }),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -579,10 +573,7 @@ export function registerCollectionCoreTools(server: McpServer): void {
       description: 'List all documents in a collection in XML format.',
       inputSchema: z.object({
         collId: CollIdSchema,
-        index: z.number().int().optional().default(0).describe('Start index'),
-        nValues: z.number().int().optional().default(0).describe('Number of values'),
-        sortColumn: z.string().optional().describe('Column to sort by'),
-        sortDirection: z.string().optional().describe('Sort direction (asc/desc)'),
+        ...paginationWithDefaults({ index: 0, nValues: 0 }),
         isDeleted: z.string().optional().default('false').describe('Include deleted documents'),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
@@ -743,11 +734,8 @@ export function registerCollectionCoreTools(server: McpServer): void {
       title: 'List Collections for User',
       description: 'List collections accessible to a specific user.',
       inputSchema: z.object({
-        userid: z.number().int().positive().describe('User ID'),
-        index: z.number().int().optional().default(0).describe('Start index'),
-        nValues: z.number().int().optional().default(0).describe('Number of values'),
-        sortColumn: z.string().optional().describe('Column to sort by'),
-        sortDirection: z.string().optional().describe('Sort direction (asc/desc)'),
+        userid: UserIdSchema,
+        ...paginationWithDefaults({ index: 0, nValues: 0 }),
         excludeEmpty: z.boolean().optional().default(false).describe('Exclude empty collections'),
         role: z.string().optional().describe('Filter by user role'),
       }),

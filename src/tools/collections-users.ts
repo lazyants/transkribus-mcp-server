@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { transkribusRequest } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
-import { CollIdSchema } from '../schemas/common.js';
+import { CollIdSchema, UserIdSchema, paginationWithDefaults } from '../schemas/common.js';
 
 export function registerCollectionUserTools(server: McpServer): void {
   server.registerTool(
@@ -12,7 +12,7 @@ export function registerCollectionUserTools(server: McpServer): void {
       description: 'Add a user to a collection or modify their role if they already exist.',
       inputSchema: z.object({
         collId: CollIdSchema,
-        userId: z.number().int().positive().describe('User ID to add or modify'),
+        userId: UserIdSchema.describe('User ID to add or modify'),
         role: z.string().describe('Role to assign to the user'),
         userid: z.number().int().optional().describe('User ID (alternative)'),
         sendMail: z.boolean().optional().default(true).describe('Send notification email'),
@@ -33,10 +33,7 @@ export function registerCollectionUserTools(server: McpServer): void {
       inputSchema: z.object({
         collId: CollIdSchema,
         role: z.string().optional().describe('Filter by user role'),
-        index: z.number().int().optional().default(0).describe('Start index'),
-        nValues: z.number().int().optional().default(-1).describe('Number of values'),
-        sortColumn: z.string().optional().describe('Column to sort by'),
-        sortDirection: z.string().optional().describe('Sort direction (asc/desc)'),
+        ...paginationWithDefaults({ index: 0, nValues: -1 }),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -53,7 +50,7 @@ export function registerCollectionUserTools(server: McpServer): void {
       description: 'Add a new user to a collection with an optional role.',
       inputSchema: z.object({
         collId: CollIdSchema,
-        userId: z.number().int().positive().describe('User ID to add'),
+        userId: UserIdSchema.describe('User ID to add'),
         role: z.string().optional().describe('Role to assign to the user'),
         sendMail: z.boolean().optional().describe('Send notification email (default false)'),
       }),
@@ -72,7 +69,7 @@ export function registerCollectionUserTools(server: McpServer): void {
       description: 'Remove a user from a collection by their user ID.',
       inputSchema: z.object({
         collId: CollIdSchema,
-        userid: z.number().int().positive().describe('User ID to remove'),
+        userid: UserIdSchema.describe('User ID to remove'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     },
@@ -89,7 +86,7 @@ export function registerCollectionUserTools(server: McpServer): void {
       description: 'Update the role of a user in a collection.',
       inputSchema: z.object({
         collId: CollIdSchema,
-        userid: z.number().int().positive().describe('User ID to update'),
+        userid: UserIdSchema.describe('User ID to update'),
         role: z.string().describe('New role to assign'),
         sendMail: z.boolean().optional().describe('Send notification email (default true)'),
       }),
@@ -109,10 +106,7 @@ export function registerCollectionUserTools(server: McpServer): void {
       inputSchema: z.object({
         collId: CollIdSchema,
         role: z.string().optional().describe('Filter by user role'),
-        index: z.number().int().optional().default(0).describe('Start index'),
-        nValues: z.number().int().optional().default(-1).describe('Number of values'),
-        sortColumn: z.string().optional().describe('Column to sort by'),
-        sortDirection: z.string().optional().describe('Sort direction (asc/desc)'),
+        ...paginationWithDefaults({ index: 0, nValues: -1 }),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -146,10 +140,7 @@ export function registerCollectionUserTools(server: McpServer): void {
       description: 'Get user statistics for a collection.',
       inputSchema: z.object({
         collId: CollIdSchema,
-        index: z.number().int().optional().default(0).describe('Start index'),
-        nValues: z.number().int().optional().default(-1).describe('Number of values'),
-        sortColumn: z.string().optional().describe('Column to sort by'),
-        sortDirection: z.string().optional().describe('Sort direction (asc/desc)'),
+        ...paginationWithDefaults({ index: 0, nValues: -1 }),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -167,7 +158,7 @@ export function registerCollectionUserTools(server: McpServer): void {
       description: 'Remove a user from a collection using the POST endpoint.',
       inputSchema: z.object({
         collId: CollIdSchema,
-        userid: z.number().int().positive().describe('User ID to remove'),
+        userid: UserIdSchema.describe('User ID to remove'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     },

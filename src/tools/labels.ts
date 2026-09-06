@@ -2,9 +2,9 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { transkribusRequest } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
-import { IdSchema, PaginationParams } from '../schemas/common.js';
+import { IdSchema, PaginationParams, intCoerce } from '../schemas/common.js';
 
-const LabelIdSchema = z.number().int().positive().describe('Label ID');
+const LabelIdSchema = intCoerce(z.number().int().positive()).describe('Label ID');
 
 export function registerLabelTools(server: McpServer): void {
   // 1. GET /labels

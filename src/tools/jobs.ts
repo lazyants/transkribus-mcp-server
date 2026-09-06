@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { transkribusRequest } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
-import { IdSchema, PaginationParams, intCoerce } from '../schemas/common.js';
+import { IdSchema, PaginationParams, UserIdSchema, intCoerce, paginationWithDefaults } from '../schemas/common.js';
 
 /** The three states TrpJobStatus itself treats as terminal. UNFINISHED is NOT
  *  one of them — it is a meta-status used to FILTER job lists ("all but
@@ -193,7 +193,7 @@ export function registerJobTools(server: McpServer): void {
       title: 'Restart All Jobs by User',
       description: 'Restart all jobs for a specific user.',
       inputSchema: z.object({
-        userid: z.number().int().positive().describe('User ID whose jobs to restart'),
+        userid: UserIdSchema.describe('User ID whose jobs to restart'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -321,10 +321,7 @@ export function registerJobTools(server: McpServer): void {
       description: 'Get credit transactions associated with a specific job.',
       inputSchema: z.object({
         jobId: IdSchema,
-        index: z.number().int().optional().default(0).describe('Start index'),
-        nValues: z.number().int().optional().default(-1).describe('Number of values'),
-        sortColumn: z.string().optional().describe('Column to sort by'),
-        sortDirection: z.string().optional().describe('Sort direction (asc/desc)'),
+        ...paginationWithDefaults({ index: 0, nValues: -1 }),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
