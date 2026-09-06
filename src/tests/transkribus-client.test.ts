@@ -39,7 +39,7 @@ vi.mock('axios', async (importOriginal) => {
 const COOKIE_VALUE = 'session-secret-cookie-value';
 
 // Sentinel password, used BOTH as TRANSKRIBUS_PASSWORD and in the seeded config
-// below, so the value asserted on is the one login() actually puts on the wire.
+// below, so the value asserted on is the one login() actually sent.
 const PASSWORD_VALUE = 'login-secret-password-value';
 
 // Build a fake login AxiosError seeded with JSESSIONID everywhere axios stashes
