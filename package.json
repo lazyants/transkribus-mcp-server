@@ -60,15 +60,18 @@
     "body-parser": "^2.3.0"
   },
   "devDependencies": {
-    "typescript": "^6.0.0",
-    "@types/node": "^20.19.41",
-    "vitest": "^4.1.7",
-    "eslint": "^10.4.0",
     "@eslint/js": "^10.0.1",
+    "@types/node": "^20.19.41",
+    "eslint": "^10.4.0",
+    "globals": "^17.6.0",
+    "typescript": "^6.0.0",
     "typescript-eslint": "^8.59.4",
-    "globals": "^17.6.0"
+    "vitest": "^4.1.7"
   },
   "engines": {
     "node": ">=20"
+  },
+  "optionalDependencies": {
+    "@napi-rs/keyring": "^2.0.0"
   }
 }

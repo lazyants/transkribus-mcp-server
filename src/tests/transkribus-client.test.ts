@@ -34,6 +34,18 @@ vi.mock('axios', async (importOriginal) => {
   };
 });
 
+// The service module reads the OS keyring before the environment. Stub the
+// native module so these env-driven tests never touch a real credential store —
+// a developer with entries stored under the default service name would
+// otherwise see them override the env vars set below.
+vi.mock('@napi-rs/keyring', () => ({
+  AsyncEntry: class {
+    getPassword(): Promise<string | undefined> {
+      return Promise.resolve(undefined);
+    }
+  },
+}));
+
 // Sentinel cookie value; if it survives anywhere in a chained/serialized error,
 // the session cookie has leaked out of the initial-login failure path.
 const COOKIE_VALUE = 'session-secret-cookie-value';
