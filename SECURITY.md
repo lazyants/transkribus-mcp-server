@@ -15,9 +15,10 @@ this wrapper.
 | Version | Supported |
 | ------- | --------- |
 | 3.x   | ✅        |
+| 2.x   | ✅ until 2027-01-17 |
 
 Older majors are not supported. `3.0.0` was released on 2026-07-17, so `2.x`
-receives security fixes until 2027-01-17, six months after that.
+receives security fixes for six months after that, until 2027-01-17.
 
 ## Reporting a vulnerability
 

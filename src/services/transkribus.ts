@@ -161,11 +161,24 @@ function getCredentials(): Promise<ResolvedCredentials> {
   return pending;
 }
 
+/** Drop the cached snapshot so the next getCredentials() reads the keyring and
+ *  the environment again. Concurrent callers still share whatever lookup runs
+ *  next — this clears the memo, it does not bypass it. */
+function invalidateCredentials(): void {
+  credentialsPromise = null;
+}
+
 async function login(): Promise<string> {
-  const creds = await getCredentials();
+  let creds = await getCredentials();
   if (!creds.user || !creds.password) {
-    // Reachable when only a session id was configured and it has expired: the
-    // 401 handler needs a user and password to mint a new session.
+    // A snapshot taken when only a session id was configured has no login pair,
+    // and that session has now expired. Re-read both sources before giving up,
+    // so a user and password added after startup are picked up rather than
+    // needing a restart.
+    invalidateCredentials();
+    creds = await getCredentials();
+  }
+  if (!creds.user || !creds.password) {
     throw new Error(
       'Transkribus login requires a user name and password. Provide them via the OS keyring ' +
       `(service "${KEYRING_SERVICE_DEFAULT}", override with TRANSKRIBUS_KEYRING_SERVICE; accounts ` +
@@ -187,6 +200,11 @@ async function login(): Promise<string> {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     });
   } catch (err) {
+    // The credentials this attempt used are now suspect — a rotated or
+    // mistyped password is the common case — so drop the snapshot: the next
+    // attempt re-reads the keyring and the environment instead of retrying the
+    // same rejected pair until the process restarts.
+    invalidateCredentials();
     // This propagates directly out of ensureSession() to the tool caller —
     // it does NOT go through wrapAxiosError. Apply the same fail-closed rule
     // here: if sanitizeAxiosError can't guarantee full coverage, don't

@@ -149,4 +149,41 @@ describe('interceptor recursion (#30) — real adapter, genuine interceptor pipe
     expect(protectedHits).toBe(2);
     expect(loginHits).toBe(1);
   });
+
+  it('Test C — credentials added after startup are used on re-auth, without a restart', async () => {
+    // A session-id-only setup: the first request caches a credential snapshot
+    // with no login pair. When that session expires, the 401 handler must
+    // re-read the sources rather than keep reporting the snapshot's missing
+    // user and password until the process restarts.
+    delete process.env.TRANSKRIBUS_USER;
+    delete process.env.TRANSKRIBUS_PASSWORD;
+
+    let loginHits = 0;
+    setAdapter(async (config) => {
+      const url = config.url as string;
+      if (url === '/auth/login') {
+        loginHits++;
+        return { status: 200, statusText: 'OK', headers: {}, config, data: { sessionId: 'fresh-session-id' } };
+      }
+      // The stale configured session keeps failing until a login replaces it,
+      // so the second request meets a 401 exactly like the first.
+      const cookie = String((config.headers as Record<string, unknown> | undefined)?.Cookie ?? '');
+      if (!cookie.includes('fresh-session-id')) throw make401(config);
+      return { status: 200, statusText: 'OK', headers: {}, config, data: { ok: true } };
+    });
+
+    const { transkribusRequest } = await import('../services/transkribus.js');
+
+    // Nothing to log in with yet: the 401 cannot be recovered.
+    const failed = await transkribusRequest('GET', '/collections').catch((e: unknown) => e);
+    expect(failed).toBeInstanceOf(Error);
+    expect(loginHits).toBe(0);
+
+    // The user stores the missing pair while the server keeps running.
+    process.env.TRANSKRIBUS_USER = 'test-user';
+    process.env.TRANSKRIBUS_PASSWORD = 'test-password';
+
+    expect(await transkribusRequest('GET', '/collections')).toEqual({ ok: true });
+    expect(loginHits).toBe(1);
+  });
 });
