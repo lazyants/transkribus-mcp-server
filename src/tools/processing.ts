@@ -55,18 +55,41 @@ const TextRecognitionSchema = z
   })
   .describe('Text recognition settings');
 
+// The live spec caps base64 image data at 27962027 characters — the string length
+// of the documented 20 MB binary limit. Enforcing it (and the base64 alphabet)
+// here rather than letting the upload fail upstream matters more than usual for
+// this client: `metagraphoError` deliberately discards the server's wording, so
+// an oversized or malformed payload would otherwise cost a full upload and come
+// back as a bare "HTTP 400" with nothing to act on.
+const MAX_BASE64_LENGTH = 27962027;
+
+const Base64Schema = z
+  .string()
+  .min(1)
+  .max(MAX_BASE64_LENGTH)
+  // Whitespace is allowed because MIME-wrapped base64 arrives with line breaks;
+  // padding is only ever trailing.
+  .regex(/^[A-Za-z0-9+/\s]*={0,2}$/, 'Must be base64-encoded image data')
+  .describe('Base64-encoded image data (JPEG, TIFF or PNG, up to 20 MB)');
+
+// The API models the image as `maxProperties: 1` — exactly one source. A
+// `.refine` would enforce that at runtime but is invisible to
+// `z.toJSONSchema`, so `tools/list` would advertise both fields as optional and
+// a client that synthesizes or pre-validates arguments from the published schema
+// would happily produce a call that can only fail. A union publishes the
+// constraint instead: it emits `anyOf` with each branch requiring its own field
+// and forbidding the other.
 const ImageSchema = z
-  .object({
-    imageUrl: z.string().url().optional().describe('URL of a publicly reachable image file'),
-    base64: z.string().optional().describe('Base64-encoded image data'),
-  })
-  // The API models this as `maxProperties: 1`. A JSON Schema refinement is not
-  // representable, so the constraint is enforced here at parse time and stated
-  // in the field descriptions above and the tool description below.
-  .refine(
-    (v) => (v.imageUrl !== undefined ? 1 : 0) + (v.base64 !== undefined ? 1 : 0) === 1,
-    { message: 'Provide exactly one of imageUrl or base64' }
-  )
+  .union([
+    z.object({
+      imageUrl: z.string().url().describe('URL of a publicly reachable image file'),
+      base64: z.never().optional(),
+    }),
+    z.object({
+      base64: Base64Schema,
+      imageUrl: z.never().optional(),
+    }),
+  ])
   .describe('The image to process: exactly one of imageUrl or base64');
 
 export function registerProcessingTools(server: McpServer): void {

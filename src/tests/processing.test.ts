@@ -482,6 +482,46 @@ describe('Processing tool schemas', () => {
     ).toBe(false);
   });
 
+  it('PUBLISHES the exactly-one-source rule in the tools/list schema', async () => {
+    // A `.refine` enforces this at runtime but is invisible to z.toJSONSchema, so
+    // a client that synthesizes arguments from the published schema would see two
+    // optional fields and could only discover the rule by failing a call.
+    const tools = await registeredTools();
+    const schema = z.toJSONSchema(tools['transkribus_processing_submit_image'].inputSchema!, {
+      io: 'input',
+    }) as { properties?: Record<string, any> };
+
+    const image = schema.properties!.image;
+    expect(image.anyOf, 'image is not published as a union').toBeDefined();
+    expect(image.anyOf).toHaveLength(2);
+
+    const branches = image.anyOf.map((b: any) => ({
+      required: b.required ?? [],
+      forbidden: Object.entries(b.properties ?? {})
+        .filter(([, v]: [string, any]) => v && typeof v === 'object' && 'not' in v)
+        .map(([k]) => k),
+    }));
+    expect(branches).toContainEqual({ required: ['imageUrl'], forbidden: ['base64'] });
+    expect(branches).toContainEqual({ required: ['base64'], forbidden: ['imageUrl'] });
+  });
+
+  it('rejects malformed or oversized base64 before it is uploaded', async () => {
+    // This client suppresses upstream error bodies on purpose, so an upload that
+    // the API rejects comes back as a bare "HTTP 400". Catching the two
+    // constraints the spec states (base64 alphabet, maxLength 27962027) locally
+    // is what keeps that failure actionable.
+    const tools = await registeredTools();
+    const schema = tools['transkribus_processing_submit_image'].inputSchema!;
+    const base = { config: { textRecognition: { htrId: 38230 } } };
+
+    expect(schema.safeParse({ ...base, image: { base64: 'not base64!!' } }).success).toBe(false);
+    expect(schema.safeParse({ ...base, image: { base64: '' } }).success).toBe(false);
+    expect(schema.safeParse({ ...base, image: { base64: 'A'.repeat(27962028) } }).success).toBe(false);
+    // At the cap, and MIME-wrapped with line breaks, are both fine.
+    expect(schema.safeParse({ ...base, image: { base64: 'A'.repeat(27962027) } }).success).toBe(true);
+    expect(schema.safeParse({ ...base, image: { base64: 'AAAA\nBBBB==' } }).success).toBe(true);
+  });
+
   it('coerces string-encoded IDs the way MCP clients send them', async () => {
     const tools = await registeredTools();
     const parsed = tools['transkribus_processing_get_status'].inputSchema!.safeParse({
