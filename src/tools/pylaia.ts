@@ -3,7 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { transkribusRequest } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
-import { CollIdSchema, ModelIdSchema } from '../schemas/common.js';
+import { CollIdSchema, DocIdSchema, ModelIdSchema } from '../schemas/common.js';
 
 /** Transform flat [{docId, pageId}] → grouped [{docId, pageList: {pages: [{pageId}]}}] */
 function groupPagesByDoc(
@@ -284,7 +284,7 @@ export function registerPylaiaTools(server: McpServer): void {
       inputSchema: z.object({
         collId: CollIdSchema,
         modelId: ModelIdSchema,
-        docId: z.number().int().positive().describe('Document ID'),
+        docId: DocIdSchema,
         pages: z.string().optional().describe('Page range (e.g. "1-5")'),
         languageModel: z.string().optional().describe('Language model to use'),
         printedModelId: z.number().int().optional().describe('Printed text model ID'),

@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { transkribusRequest } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
-import { IdSchema, PaginationParams } from '../schemas/common.js';
+import { IdSchema, PaginationParams, paginationIndex, paginationNValues } from '../schemas/common.js';
 
 export function registerUserTools(server: McpServer): void {
   // 1. GET /user/countMyDocs
@@ -12,8 +12,8 @@ export function registerUserTools(server: McpServer): void {
       title: 'Count My Documents',
       description: 'Get the total number of documents owned by the current user.',
       inputSchema: z.object({
-        index: z.number().int().optional().default(0).describe('Start index'),
-        nValues: z.number().int().optional().default(0).describe('Number of values'),
+        index: paginationIndex(0),
+        nValues: paginationNValues(0),
         getAllDocsIfAdmin: z.boolean().optional().default(false).describe('Get all docs if admin'),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },

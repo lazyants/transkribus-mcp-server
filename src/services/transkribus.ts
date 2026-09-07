@@ -5,23 +5,197 @@ let sessionId: string | null = null;
 let clientInstance: AxiosInstance | null = null;
 let loginClientInstance: AxiosInstance | null = null;
 
-function getCredentials(): { user: string; password: string } | null {
-  const user = process.env.TRANSKRIBUS_USER;
-  const password = process.env.TRANSKRIBUS_PASSWORD;
-  if (user && password) return { user, password };
-  return null;
+// Credentials are read from the OS keyring first and fall back to the
+// environment, so an MCP client config file need not carry a long-lived
+// Transkribus account password in clear text. One entry per value under a
+// shared service name: `user`, `password` and `session-id`. The service name is
+// configurable so several server instances can point at different accounts.
+const KEYRING_SERVICE_DEFAULT = 'transkribus-mcp';
+const KEYRING_ACCOUNT_USER = 'user';
+const KEYRING_ACCOUNT_PASSWORD = 'password';
+const KEYRING_ACCOUNT_SESSION = 'session-id';
+
+// A locked or unresponsive credential store must not stall the MCP stdio
+// handshake — that is the worst failure shape here, because the client sees
+// only a server that never answers. Two independent bounds are used, and the
+// second one is the one that actually holds: napi-rs can only cancel work that
+// has NOT started, so an AbortSignal does not interrupt a native read already
+// waiting on a locked keychain. The signal is still passed (it stops queued
+// work early), but each read is also raced against this deadline, after which
+// that value is treated as absent and the environment fallback applies.
+const KEYRING_TIMEOUT_MS = 5_000;
+
+export interface ResolvedCredentials {
+  sessionId: string | null;
+  user: string | null;
+  password: string | null;
 }
 
-function getSessionFromEnv(): string | null {
-  return process.env.TRANSKRIBUS_SESSION_ID || null;
+// Each source supplies whichever of the three values it happens to hold.
+interface CredentialSources {
+  keyring: Partial<ResolvedCredentials>;
+  env: Partial<ResolvedCredentials>;
 }
 
-async function login(): Promise<string> {
-  const creds = getCredentials();
-  if (!creds) {
+/**
+ * Pure credential-source selection: per value, the keyring wins and the
+ * environment is the fallback (mixing sources is allowed — e.g. the user name
+ * in the config, the password in the keyring). Throws a clear, secret-free
+ * error when neither a session id nor a complete user+password pair is
+ * available. Kept pure (no keyring/env IO) so every branch is unit-testable
+ * without the native module; the impure reads live in resolveCredentials().
+ */
+export function selectCredentials({ keyring, env }: CredentialSources): ResolvedCredentials {
+  // An entry that exists but holds an empty string falls through to the
+  // environment rather than authenticating as the empty user.
+  const resolved: ResolvedCredentials = {
+    sessionId: keyring.sessionId || env.sessionId || null,
+    user: keyring.user || env.user || null,
+    password: keyring.password || env.password || null,
+  };
+
+  if (resolved.sessionId) return resolved;
+  if (resolved.user && resolved.password) return resolved;
+
+  // Never interpolate the runtime TRANSKRIBUS_KEYRING_SERVICE value into this
+  // message: a user who mis-set it to their password would otherwise see the
+  // secret echoed back. Name the env var and show only the default constant.
+  throw new Error(
+    [
+      'No Transkribus credentials found. Provide them via one of:',
+      `  • OS keyring: service "${KEYRING_SERVICE_DEFAULT}" (override with TRANSKRIBUS_KEYRING_SERVICE), ` +
+        `accounts "${KEYRING_ACCOUNT_USER}" + "${KEYRING_ACCOUNT_PASSWORD}", or "${KEYRING_ACCOUNT_SESSION}"`,
+      '  • Environment variables: TRANSKRIBUS_USER + TRANSKRIBUS_PASSWORD, or TRANSKRIBUS_SESSION_ID',
+    ].join('\n')
+  );
+}
+
+type AsyncEntryConstructor = typeof import('@napi-rs/keyring').AsyncEntry;
+
+/** Resolve `work` normally, or `null` once `ms` has elapsed — the bound that
+ *  actually holds when a native keyring read ignores its abort signal. The
+ *  timer is unref'd so a pending deadline never keeps the process alive. */
+async function withDeadline(work: Promise<string | null>, ms: number): Promise<string | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), ms);
+    timer.unref?.();
+  });
+  try {
+    return await Promise.race([work, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Read one keyring entry, resolving to null on ANY failure: no such entry, a
+ *  store that cannot be read, or a read that outlives KEYRING_TIMEOUT_MS. Each
+ *  entry is isolated, so a missing password cannot discard a present user. */
+function readKeyringEntry(
+  AsyncEntry: AsyncEntryConstructor,
+  service: string,
+  account: string,
+  signal: AbortSignal
+): Promise<string | null> {
+  const read = (async () => {
+    try {
+      return (await new AsyncEntry(service, account).getPassword(signal)) ?? null;
+    } catch {
+      return null;
+    }
+  })();
+  return withDeadline(read, KEYRING_TIMEOUT_MS);
+}
+
+/** Read all three entries in parallel. AsyncEntry, not the sync Entry: the sync
+ *  API blocks the event loop. An unavailable keyring — headless Linux without
+ *  libsecret, an unsupported platform, `npm install --omit=optional` — throws on
+ *  import and degrades to the environment, which is why the module is an
+ *  optionalDependency loaded lazily rather than a hard import. */
+async function readKeyring(service: string): Promise<ResolvedCredentials> {
+  let AsyncEntry: AsyncEntryConstructor;
+  try {
+    ({ AsyncEntry } = await import('@napi-rs/keyring'));
+  } catch {
+    return { user: null, password: null, sessionId: null };
+  }
+
+  const signal = AbortSignal.timeout(KEYRING_TIMEOUT_MS);
+  const [user, password, keyringSessionId] = await Promise.all([
+    readKeyringEntry(AsyncEntry, service, KEYRING_ACCOUNT_USER, signal),
+    readKeyringEntry(AsyncEntry, service, KEYRING_ACCOUNT_PASSWORD, signal),
+    readKeyringEntry(AsyncEntry, service, KEYRING_ACCOUNT_SESSION, signal),
+  ]);
+  return { user, password, sessionId: keyringSessionId };
+}
+
+/** Impure counterpart of selectCredentials: reads the keyring and the
+ *  environment, then delegates the choice. Exported for tests. */
+export async function resolveCredentials(): Promise<ResolvedCredentials> {
+  const service = process.env.TRANSKRIBUS_KEYRING_SERVICE || KEYRING_SERVICE_DEFAULT;
+  const keyring = await readKeyring(service);
+
+  return selectCredentials({
+    keyring,
+    env: {
+      user: process.env.TRANSKRIBUS_USER,
+      password: process.env.TRANSKRIBUS_PASSWORD,
+      sessionId: process.env.TRANSKRIBUS_SESSION_ID,
+    },
+  });
+}
+
+let credentialsPromise: Promise<ResolvedCredentials> | null = null;
+
+/** Single-flight, and nothing kept afterwards: concurrent callers share one
+ *  in-flight lookup, and the memo is dropped once it settles, so the next caller
+ *  reads the keyring and the environment again.
+ *
+ *  Holding a resolved snapshot for the process lifetime is what made a rotated
+ *  password, a replaced session id, or credentials added after startup require a
+ *  restart — one defect per way of going stale. Keeping no snapshot removes the
+ *  class rather than each instance of it. The reads this costs are bounded: a
+ *  cold start and a 401 re-authentication, not one per request.
+ *
+ *  The memo is the promise RETURNED by .finally(), not the bare lookup, so a
+ *  rejection reaches every awaiting caller instead of going unhandled; the
+ *  identity check keeps a settling lookup from clearing a newer one. */
+function getCredentials(): Promise<ResolvedCredentials> {
+  if (credentialsPromise) return credentialsPromise;
+  const pending: Promise<ResolvedCredentials> = resolveCredentials().finally(() => {
+    if (credentialsPromise === pending) credentialsPromise = null;
+  });
+  credentialsPromise = pending;
+  return pending;
+}
+
+/**
+ * Obtain a session id by logging in, from credentials read right now.
+ *
+ * `expiredSessionId` is the session THIS caller's request actually carried, and
+ * the value the freshly read one is compared against. It is deliberately not the
+ * module-global `sessionId`, which another caller's re-auth can replace while
+ * this one is awaiting: comparing against the global would make the second of
+ * two concurrent 401s mistake the just-adopted session for the dead one.
+ */
+async function login({
+  expiredSessionId = null,
+}: { expiredSessionId?: string | null } = {}): Promise<string> {
+  const creds = await getCredentials();
+  if (!creds.user || !creds.password) {
+    // The configured credential may be a session id with no login pair beside
+    // it. If what the sources hold now is a DIFFERENT session from the one that
+    // just died, that is the replacement the operator provided — adopt it and
+    // skip the account login this function exists for. Re-adopting the session
+    // that produced this 401 would hand the caller a credential already known
+    // to be dead.
+    if (creds.sessionId && creds.sessionId !== expiredSessionId) return creds.sessionId;
+
     throw new Error(
-      'TRANSKRIBUS_USER and TRANSKRIBUS_PASSWORD environment variables are required, ' +
-      'or set TRANSKRIBUS_SESSION_ID directly.'
+      'Transkribus login requires a user name and password. Provide them via the OS keyring ' +
+      `(service "${KEYRING_SERVICE_DEFAULT}", override with TRANSKRIBUS_KEYRING_SERVICE; accounts ` +
+      `"${KEYRING_ACCOUNT_USER}" and "${KEYRING_ACCOUNT_PASSWORD}") or the TRANSKRIBUS_USER and ` +
+      'TRANSKRIBUS_PASSWORD environment variables.'
     );
   }
 
@@ -67,6 +241,17 @@ async function login(): Promise<string> {
   throw new Error('Login succeeded but no JSESSIONID found in response');
 }
 
+/** The JSESSIONID the given request was sent with, or null if it carried none.
+ *  Cookie-attribute parsing stops at the first `;`, as in login(). */
+function sessionFromRequestConfig(config: { headers?: unknown }): string | null {
+  const headers = config.headers;
+  if (!headers || typeof headers !== 'object') return null;
+  const cookie = (headers as Record<string, unknown>).Cookie ?? (headers as Record<string, unknown>).cookie;
+  if (typeof cookie !== 'string') return null;
+  const match = /JSESSIONID=([^;]+)/i.exec(cookie);
+  return match ? match[1] : null;
+}
+
 function baseClientConfig(): Record<string, unknown> {
   return {
     baseURL: TRANSKRIBUS_API_BASE,
@@ -78,12 +263,86 @@ function baseClientConfig(): Record<string, unknown> {
   };
 }
 
+// setTimeout coerces its delay to a 32-bit signed int, so a value above this
+// ceiling silently wraps and can fire immediately. Clamp every computed delay.
+const MAX_RETRY_DELAY_MS = 2_147_483_647;
+
+// RFC 7231 §7.1.1.1 IMF-fixdate, e.g. "Wed, 21 Oct 2015 07:28:00 GMT" — the only
+// HTTP-date form a server is permitted to SEND. We parse its fields explicitly
+// rather than via Date.parse: Date.parse is a permissive PARSER, not a validator,
+// so it silently mishandles the obsolete forms (RFC 850 two-digit years → 19xx,
+// asctime → local time) AND normalizes invalid IMF-fixdate values ("31 Feb" →
+// Mar 3, hour "25" → next day), any of which would yield a WRONG delay instead of
+// a clean reject. Capturing the fields and round-tripping through Date.UTC rejects
+// every such value so the caller can fall back to exponential backoff.
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const IMF_FIXDATE = /^([A-Za-z]{3}), (\d{2}) ([A-Za-z]{3}) (\d{4}) (\d{2}):(\d{2}):(\d{2}) GMT$/;
+
+// Parse a strict IMF-fixdate to a UTC epoch-ms, or null if any field is invalid or
+// the value was normalized (Date.UTC silently rolls over out-of-range fields and
+// maps a 0-99 year to 19xx, so the exact round-trip below is the real validation).
+// The day-name is redundant with the date but a conforming sender always sets it
+// correctly, so a mismatch means a corrupt header → reject (→ exponential backoff).
+function parseImfFixdate(value: string): number | null {
+  const m = IMF_FIXDATE.exec(value);
+  if (!m) return null;
+  const month = MONTHS.indexOf(m[3]);
+  if (month < 0) return null;
+  const day = Number(m[2]);
+  const year = Number(m[4]);
+  const hour = Number(m[5]);
+  const minute = Number(m[6]);
+  const second = Number(m[7]);
+  const ms = Date.UTC(year, month, day, hour, minute, second);
+  const d = new Date(ms);
+  if (
+    d.getUTCFullYear() !== year ||
+    d.getUTCMonth() !== month ||
+    d.getUTCDate() !== day ||
+    d.getUTCHours() !== hour ||
+    d.getUTCMinutes() !== minute ||
+    d.getUTCSeconds() !== second ||
+    DAYS[d.getUTCDay()] !== m[1]
+  ) {
+    return null;
+  }
+  return ms;
+}
+
+/**
+ * Parse an RFC 7231 `Retry-After` header into a non-negative millisecond delay.
+ * The header is either delta-seconds (a bare integer) OR an HTTP-date — a bare
+ * `parseInt` turned a date into `NaN`, so `setTimeout(NaN)` fired immediately and
+ * defeated the 429 backoff (#31). Returns null when absent or unparseable (including
+ * the obsolete non-IMF-fixdate forms) so the caller falls back to exponential
+ * backoff; clamps to a finite, non-negative delay.
+ */
+export function parseRetryAfterMs(
+  retryAfter: string | undefined,
+  now: number = Date.now()
+): number | null {
+  if (!retryAfter) return null;
+  const trimmed = retryAfter.trim();
+
+  // delta-seconds: a bare non-negative integer count of seconds.
+  if (/^\d+$/.test(trimmed)) {
+    return Math.min(Number(trimmed) * 1000, MAX_RETRY_DELAY_MS);
+  }
+
+  // HTTP-date (strict IMF-fixdate): delay until that instant, never into the past.
+  const dateMs = parseImfFixdate(trimmed);
+  if (dateMs === null) return null;
+  return Math.min(Math.max(dateMs - now, 0), MAX_RETRY_DELAY_MS);
+}
+
 /** Shared 429 rate-limit retry interceptor, bound to whichever `client` instance
  *  it is attached to (the main client OR the login client) — it retries THROUGH
  *  that same parameter, never a closed-over module-scope client, so reusing it
- *  on a second instance cannot reintroduce cross-client recursion. Logic is
- *  unchanged from the pre-existing (already-bounded) 429 behavior; only the
- *  exhausted-retries error now chains its cause instead of discarding it. */
+ *  on a second instance cannot reintroduce cross-client recursion. The retry
+ *  bound itself is the pre-existing (already-bounded) 429 behavior; the
+ *  exhausted-retries error chains its cause instead of discarding it (#30), and
+ *  the delay now comes from parseRetryAfterMs rather than a bare parseInt (#31). */
 function attachRateLimitInterceptor(client: AxiosInstance): void {
   client.interceptors.response.use(
     (response) => response,
@@ -96,13 +355,8 @@ function attachRateLimitInterceptor(client: AxiosInstance): void {
         return Promise.reject(chainSanitizedCause('Rate limit exceeded after maximum retries', error));
       }
 
-      const retryAfter = error.response.headers['retry-after'];
-      let delay: number;
-      if (retryAfter) {
-        delay = parseInt(retryAfter, 10) * 1000;
-      } else {
-        delay = Math.pow(2, retryCount) * 1000;
-      }
+      const retryAfterMs = parseRetryAfterMs(error.response.headers['retry-after']);
+      const delay = retryAfterMs ?? Math.pow(2, retryCount) * 1000;
 
       (config as unknown as Record<string, unknown>).__retryCount = retryCount + 1;
       console.error(`[transkribus-mcp] Rate limited. Retrying in ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`);
@@ -136,8 +390,14 @@ function createClient(): AxiosInstance {
       if (retried) return Promise.reject(error);
       (config as unknown as Record<string, unknown>).__authRetried = true;
 
+      // The session THIS request carried, read off its own headers rather than
+      // from the module global, which a concurrent re-auth may already have
+      // replaced. Falling back to the global covers a request that carried no
+      // cookie at all.
+      const expiredSessionId = sessionFromRequestConfig(config) ?? sessionId;
+
       try {
-        sessionId = await login();
+        sessionId = await login({ expiredSessionId });
         console.error('[transkribus-mcp] Re-authenticated after 401');
         return client.request(config);
       } catch (loginErr) {
@@ -178,11 +438,13 @@ function getLoginClient(): AxiosInstance {
 }
 
 async function ensureSession(): Promise<void> {
+  // Live session first: the 401 handler mints a fresh one, and re-reading the
+  // configured (by then stale) session id here would overwrite it.
   if (sessionId) return;
 
-  const envSession = getSessionFromEnv();
-  if (envSession) {
-    sessionId = envSession;
+  const creds = await getCredentials();
+  if (creds.sessionId) {
+    sessionId = creds.sessionId;
     return;
   }
 
@@ -811,4 +1073,77 @@ export async function transkribusUpload<T = unknown>(
   } catch (err) {
     throw wrapAxiosError(err);
   }
+}
+
+// Hosts an image URL may point at. The URL itself arrives inside a Transkribus
+// API response body (TrpPage.url / TrpPage.thumbUrl), so downloading it blindly
+// would be an SSRF primitive aimed at whatever the MCP host can reach — link-local
+// metadata endpoints, localhost admin ports, the LAN. Checked against
+// URL.hostname, which excludes userinfo and port: 'transkribus.eu@evil.example'
+// has hostname 'evil.example' and 'evil-transkribus.eu' does not match the
+// dot-prefixed suffix, so both are rejected.
+const IMAGE_HOST = 'transkribus.eu';
+
+export function assertTranskribusImageUrl(raw: unknown): URL {
+  if (typeof raw !== 'string' || raw.length === 0) {
+    throw new Error('Page image URL missing from the page metadata');
+  }
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    // The malformed URL is the only detail the parse error carries, and it is
+    // already named in this message — nothing to chain.
+    throw new Error(`Page image URL is not a valid URL: ${capMessage(raw)}`);
+  }
+  if (url.protocol !== 'https:') {
+    throw new Error(`Refusing a non-https page image URL: ${url.protocol}//${url.host}`);
+  }
+  if (url.hostname !== IMAGE_HOST && !url.hostname.endsWith(`.${IMAGE_HOST}`)) {
+    throw new Error(`Refusing a page image URL outside ${IMAGE_HOST}: ${url.hostname}`);
+  }
+  return url;
+}
+
+/** Download a page image. Deliberately NOT the session client: this is a
+ *  third-party host, so no JSESSIONID is sent and no 401 re-login interceptor
+ *  fires on its responses. Redirects are re-validated per hop — the first URL
+ *  passing the allowlist says nothing about where a 302 points. */
+export async function fetchImageBytes(
+  url: URL,
+  maxBytes: number
+): Promise<{ data: Buffer; mimeType: string }> {
+  let response;
+  try {
+    response = await axios.get<ArrayBuffer>(url.toString(), {
+      responseType: 'arraybuffer',
+      timeout: REQUEST_TIMEOUT,
+      // Enforced by axios while the response accumulates, so an oversized image
+      // is aborted rather than fully buffered. maxBodyLength is deliberately not
+      // set: it caps REQUEST bodies, and this is a GET.
+      maxContentLength: maxBytes,
+      maxRedirects: 5,
+      beforeRedirect: (options) => {
+        assertTranskribusImageUrl(options.href);
+      },
+      headers: { Accept: 'image/*' },
+    });
+  } catch (err) {
+    // Same treatment as every other request in this module. This instance sends
+    // no session cookie, so nothing is known to leak today — but an unsanitized
+    // AxiosError reaching a caller that inspects it deeply is exactly the class
+    // the redaction layer above exists to close, and this would otherwise be the
+    // one call site not covered by it.
+    throw wrapAxiosError(err);
+  }
+
+  const contentType = String(response.headers['content-type'] ?? '');
+  const mimeType = contentType.split(';')[0].trim().toLowerCase();
+  if (!mimeType.startsWith('image/')) {
+    // A login or error page would otherwise be handed to the client as an
+    // image content block it cannot render.
+    throw new Error(`Expected an image response, got content-type "${contentType || 'none'}"`);
+  }
+
+  return { data: Buffer.from(response.data), mimeType };
 }

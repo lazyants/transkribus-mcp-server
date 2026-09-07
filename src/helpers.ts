@@ -20,20 +20,16 @@ export function formatResponse(data: unknown): CallToolResult {
   return result;
 }
 
-/** Arguments a tool handler receives. The MCP SDK has already validated them
- *  against the tool's Zod schema, so the wrappers below never inspect them. */
+/**
+ * For a tool whose callback builds the CallToolResult itself — an image content
+ * block cannot come out of formatResponse's JSON path.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type ToolParams = any;
-
-/** Shared body of the two wrappers below: run the call, format whatever it
- *  resolved to, and turn any throw into a logged isError result. */
-function toolHandler<T>(
-  fn: (params: ToolParams) => Promise<T>,
-  format: (value: T) => CallToolResult
-) {
-  return async (params: ToolParams): Promise<CallToolResult> => {
+export function handleRawToolRequest(fn: (params: any) => Promise<CallToolResult>) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return async (params: any) => {
     try {
-      return format(await fn(params));
+      return await fn(params);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[transkribus-mcp] Tool error: ${message}`);
@@ -42,17 +38,27 @@ function toolHandler<T>(
   };
 }
 
-export function handleToolRequest(fn: (params: ToolParams) => Promise<unknown>) {
-  return toolHandler(fn, formatResponse);
+/**
+ * The usual wrapper: run the tool and JSON-format whatever it returns. Built on
+ * handleRawToolRequest so the two share one error path by construction rather
+ * than by two copies that have to be kept in step. formatResponse stays inside
+ * the try, so a stringify failure is still reported as a tool error.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function handleToolRequest(fn: (params: any) => Promise<unknown>) {
+  return handleRawToolRequest(async (params) => formatResponse(await fn(params)));
 }
 
 /**
- * Wrapper for a tool whose upstream response is raw text, not JSON — the
- * Metagrapho PAGE/ALTO endpoints return `application/xml`. `formatResponse`
- * would `JSON.stringify` the XML into an escaped quoted blob and, since a
- * string is not a Record, would set no `structuredContent` either. This emits
- * the text verbatim.
+ * For a tool whose upstream response is raw text, not JSON — the Metagrapho
+ * PAGE/ALTO endpoints return `application/xml`. Routed through
+ * handleRawToolRequest so it shares the one error path rather than repeating it.
+ * formatResponse would `JSON.stringify` the XML into an escaped quoted blob and,
+ * since a string is not a Record, would set no `structuredContent` either.
  */
-export function handleTextToolRequest(fn: (params: ToolParams) => Promise<string>) {
-  return toolHandler(fn, (text) => ({ content: [{ type: 'text', text }] }));
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function handleTextToolRequest(fn: (params: any) => Promise<string>) {
+  return handleRawToolRequest(async (params) => ({
+    content: [{ type: 'text', text: await fn(params) }],
+  }));
 }

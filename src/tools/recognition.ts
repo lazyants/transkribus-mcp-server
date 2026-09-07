@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { transkribusRequest } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
-import { CollIdSchema, DocIdSchema, PageNrSchema, ModelIdSchema, IdSchema, PaginationParams } from '../schemas/common.js';
+import { CollIdSchema, DocIdSchema, PageNrSchema, ModelIdSchema, IdSchema, PaginationParams, paginationIndex, paginationNValues } from '../schemas/common.js';
 
 export function registerRecognitionTools(server: McpServer): void {
   // 1. GET /recognition/atr
@@ -490,8 +490,8 @@ export function registerRecognitionTools(server: McpServer): void {
       inputSchema: z.object({
         collId: CollIdSchema,
         id: IdSchema,
-        index: z.number().int().optional().default(0).describe('Start index'),
-        nValues: z.number().int().optional().default(-1).describe('Number of values'),
+        index: paginationIndex(0),
+        nValues: paginationNValues(-1),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -578,7 +578,7 @@ export function registerRecognitionTools(server: McpServer): void {
       inputSchema: z.object({
         collId: CollIdSchema,
         modelId: ModelIdSchema,
-        docId: z.number().int().positive().describe('Document ID'),
+        docId: DocIdSchema,
         pages: z.string().optional().describe('Page range (e.g. "1-5")'),
         credits: z.string().optional().default('AUTO').describe('Credits parameter'),
         doNotDeleteWorkDir: z.boolean().optional().default(true).describe('Do not delete work directory'),
@@ -654,8 +654,8 @@ export function registerRecognitionTools(server: McpServer): void {
       inputSchema: z.object({
         collId: CollIdSchema,
         id: IdSchema,
-        index: z.number().int().optional().default(0).describe('Start index'),
-        nValues: z.number().int().optional().default(-1).describe('Number of values'),
+        index: paginationIndex(0),
+        nValues: paginationNValues(-1),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },

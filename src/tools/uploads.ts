@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { transkribusRequest } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
-import { CollIdSchema, IdSchema } from '../schemas/common.js';
+import { CollIdSchema, IdSchema, intCoerce } from '../schemas/common.js';
 
 export function registerUploadTools(server: McpServer): void {
   // 1. POST /uploads — Create upload from METS
@@ -29,7 +29,7 @@ export function registerUploadTools(server: McpServer): void {
       inputSchema: z.object({
         collId: CollIdSchema,
         title: z.string().describe('Document title'),
-        nrOfPages: z.number().int().positive().describe('Number of pages'),
+        nrOfPages: intCoerce(z.number().int().positive()).describe('Number of pages'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },

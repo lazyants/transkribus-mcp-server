@@ -41,15 +41,19 @@ function pin(range: string): { range: string; min: number[] } {
 }
 
 const PINS = {
-  // qs.stringify DoS (GHSA-q8mj-m7cp-5q26).
-  qs: pin('^6.15.2'),
+  // qs.stringify DoS (GHSA-q8mj-m7cp-5q26); array-limit bypass via bracket-key
+  // comma parsing (GHSA-x5fp-wj9c-mxmx) and DoS via attacker-controlled isBuffer
+  // (GHSA-4mjr-xmp4-gh2g) extended the vulnerable range through 6.15.3.
+  qs: pin('^6.16.0'),
   // JSX cross-request disclosure, cx() XSS, CORS/Language ReDoS, proxy headers.
   hono: pin('^4.12.34'),
   // CRLF injection via unescaped multipart field/file names (GHSA-hmw2-7cc7-3qxx).
   'form-data': pin('^4.0.6'),
   // Host confusion via backslash authority delimiter / failed IDN canonicalization.
-  // The floor stays inside ajv's declared ^3.0.1.
-  'fast-uri': pin('^3.1.5'),
+  // Four later advisories (GHSA-5jgf-p345-68v8, GHSA-f65p-4m7j-42xc,
+  // GHSA-fph4-wmhf-6fwf, GHSA-jqff-g426-hqxp) extended the vulnerable range
+  // through 3.1.5. The floor stays inside ajv's declared ^3.0.1.
+  'fast-uri': pin('^3.1.7'),
   // ReDoS. Dev-only reach (eslint -> minimatch), so the --omit=dev CI gate never
   // sees it; pinned here anyway because PINS asserts a PATCHED floor.
   'brace-expansion': pin('^5.0.9'),

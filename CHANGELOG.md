@@ -20,15 +20,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `TRANSKRIBUS_USER` / `TRANSKRIBUS_PASSWORD`, refreshes the token automatically,
   and accepts `TRANSKRIBUS_ACCESS_TOKEN` to skip the exchange. Closes #22.
 
-### Fixed
-
-- **Corrected the documented Processing API version.** Earlier releases (see
-  2.1.0 below) recorded the newer API as "Processing API v2" at `/processing/v2`.
-  Verified against the live service: `/processing/v2` returns **404**, while
-  `/processing/v1` answers and its OpenAPI document self-describes as
-  "Transkribus Metagrapho API" 1.13.1. The request shape differs too — the live
-  service requires `config.textRecognition.htrId`, not `config.modelId`.
-
 ### Security
 
 - The Metagrapho client never attaches an upstream error as `cause` and never
@@ -39,6 +30,104 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tool result and stderr. Covered by regression tests that check both
   `util.inspect(err, { depth: null })` and `JSON.stringify` — the former is the
   one that catches a response-body leak.
+
+### Fixed
+
+- **Corrected the documented Processing API version.** Earlier releases (see
+  2.1.0 below) recorded the newer API as "Processing API v2" at `/processing/v2`.
+  Verified against the live service: `/processing/v2` returns **404**, while
+  `/processing/v1` answers and its OpenAPI document self-describes as
+  "Transkribus Metagrapho API" 1.13.1. The request shape differs too — the live
+  service requires `config.textRecognition.htrId`, not `config.modelId`.
+
+### Fixed
+
+- Every REQUIRED numeric tool parameter now accepts a string-encoded number, so
+  an MCP client that serializes numbers as JSON strings can call every tool.
+  `intCoerce` was applied to 191 parameters in 2.0.1; a measurement of all
+  registered tools — every parameter that accepts the number 3 but rejects the
+  string `"3"` — found 24 required stragglers it had missed, in nine modules.
+  Each one made its tool uncallable from such a client with no workaround, since
+  a required parameter cannot simply be omitted. The 18 hand-rolled
+  `index`/`nValues` pagination blocks are coerced too, and now come from
+  `src/schemas/common.ts` rather than being copy-pasted. Their existing default
+  values are unchanged: these parameters go straight into the query string, so
+  `nValues=0` and an omitted `nValues` are different requests. Numeric ARRAY
+  parameters are covered too: five required ones (`userIds`, `documentIds` ×2,
+  `pageIds` ×2) accepted `[1, 2]` but rejected `["1", "2"]`, which fails a
+  string-serializing client exactly as a bare number does. (#33)
+- 16 parameters applied a default the server never published in `tools/list`,
+  in `models.ts` and `collections-pages.ts`. Zod 4 renders a `z.preprocess` pipe
+  — which is every `intCoerce` parameter — from its input leg when emitting JSON
+  Schema in INPUT mode, and drops a `default` attached to an outer wrapper, so
+  `intCoerce(...).optional().default(N)` substituted N while telling the client
+  nothing about it. `.prefault(N)` survives the emit; advertised defaults go from
+  16 missing to 0.
+
+### Changed
+
+- `index` now rejects a negative start index across all pagination parameters,
+  and `index`/`nValues`/`sortDirection` descriptions are the same everywhere.
+  Previously the 32 tools using the shared `PaginationParams` and the 18 with
+  hand-rolled copies disagreed on both.
+
+### Added
+
+- `UserIdSchema`, and `paginationIndex`/`paginationNValues`/`paginationWithDefaults`
+  in `src/schemas/common.ts`.
+- `src/tests/schema-coercion.test.ts`, two ratchets over the whole registered tool
+  surface: no required numeric parameter may reject its own string form — bare or
+  inside an array — and every default the server applies must be advertised in
+  `tools/list`. Both scan the live schemas, so a new tool that reintroduces either
+  defect fails CI by name.
+
+### Known limitation
+
+- 137 OPTIONAL numeric parameters still reject string-encoded numbers. An optional
+  filter can be omitted, so the tool stays usable; several are counts, timestamps
+  or floats that need per-parameter judgement rather than a mechanical sweep.
+
+### Added
+
+- `transkribus_job_wait` — polls a job until it reaches `FINISHED`, `FAILED` or
+  `CANCELED`, so an LLM client no longer burns a turn per "still RUNNING" poll.
+  When the finished job's `result` carries an `http(s)` URL — an export's ZIP or
+  PDF, typically — it is surfaced as `downloadUrl` instead of being left for the
+  caller to dig out of the raw job JSON. The wall-clock budget is enforced by
+  racing each poll against one absolute deadline rather than by adding up
+  sleeps: the shared HTTP client can spend unbounded time in a login, a 401
+  re-login or a 429 backoff, and none of those are individually bounded. A
+  timed-out result is a normal result, not an error — call again to keep
+  waiting. Defaults: poll every 5s, wait up to 30s, which returns before the MCP
+  SDK's 60s default client timeout.
+- `transkribus_doc_get_plaintext` — the transcribed text of a whole document in
+  one call with `--- page N ---` separators, replacing one tool call per page.
+  Bounded by both a 100-page and a 100 000-character budget per call; when
+  either stops the walk the result carries `nextStartPage`, so a long document
+  is read in successive calls rather than failing. A page that has no transcript
+  is reported inline and does not abort the rest of the document.
+- `transkribus_page_get_image` — a page scan as an MCP image content block, so a
+  multimodal client can look at the manuscript next to its HTR output.
+  Thumbnail by default. The image URL comes from the API's own page metadata and
+  is downloaded with a bare HTTP client: no session cookie reaches the image
+  host, only `https` on `transkribus.eu` (or a subdomain) is accepted, that check
+  runs again on every redirect hop, the response must be an `image/*`, and a
+  byte cap (5 MB by default) is enforced while the response accumulates.
+- Credentials are read from the OS keyring before the environment, so an MCP
+  client config file no longer has to carry the Transkribus account password in
+  clear text. One entry per value under a configurable service name
+  (`transkribus-mcp` by default, `TRANSKRIBUS_KEYRING_SERVICE` to override),
+  accounts `user`, `password` and `session-id`; each value falls back to its
+  existing environment variable independently, so current setups keep working
+  unchanged. The keyring is optional in every sense: `@napi-rs/keyring` is an
+  `optionalDependency` loaded lazily, and an absent, locked or slow store
+  degrades to the environment — bounded at 5 seconds, because a hung credential
+  store would otherwise stall the MCP stdio handshake. Credentials added,
+  corrected or rotated while the server runs are picked up: re-authentication
+  after a 401 re-reads both sources rather than reusing the snapshot the
+  process started with. README and SECURITY.md
+  document the setup commands and the resolution order. Ported from
+  lexware-mcp-server 4.2.0 (#44).
 
 ## [3.1.0] — 2026-08-20
 
