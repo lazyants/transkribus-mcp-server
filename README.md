@@ -4,9 +4,14 @@
 
 MCP server for the [Transkribus REST API](https://transkribus.eu/). Manage collections, documents, HTR/OCR recognition, models, and more through the Model Context Protocol.
 
-**303 tools** across 22 resource domains, with 8 entry points so you can pick the right server for your MCP client's tool limit.
+**307 tools** across 23 resource domains, with 9 entry points so you can pick the right server for your MCP client's tool limit.
 
-> **API scope:** This server covers the **legacy Transkribus TrpServer REST API**. The newer **Processing API v2** (OIDC auth, `/processing/v2`, `account.readcoop.eu`) is intentionally out of scope.
+> **API scope:** This server covers **two** Transkribus APIs:
+>
+> - the **legacy TrpServer REST API** (`https://transkribus.eu/TrpServer/rest`), session-based — 300 tools;
+> - the **Metagrapho Processing API** (`https://transkribus.eu/processing/v1`), OIDC bearer auth via `account.readcoop.eu` — the 4 `transkribus_processing_*` tools.
+>
+> Mind the version. Some Transkribus material still shows `/processing/v2` and a `config.modelId` field. That path returns 404; the live service is `/processing/v1` and takes `config.textRecognition.htrId`.
 
 ## Installation
 
@@ -185,11 +190,26 @@ export TRANSKRIBUS_SESSION_ID=your-session-id
 | `TRANSKRIBUS_SESSION_ID` | — | An existing session id; used when the keyring has no `session-id` entry |
 | `TRANSKRIBUS_KEYRING_SERVICE` | `transkribus-mcp` | Keyring service name. Override to connect to several Transkribus accounts at once — run one server instance per account, each with its own service name |
 
+### Processing API credentials
+
+The `transkribus_processing_*` tools talk to a different service with a different
+auth scheme, but they need **no extra configuration**: the same
+`TRANSKRIBUS_USER` + `TRANSKRIBUS_PASSWORD` are exchanged for an OIDC bearer token
+(READCOOP SSO password grant, client `processing-api-client`) and refreshed
+automatically. `TRANSKRIBUS_SESSION_ID` does not apply to them.
+
+Two optional overrides:
+
+```bash
+export TRANSKRIBUS_ACCESS_TOKEN=your-bearer-token       # skip the token exchange entirely
+export TRANSKRIBUS_PROCESSING_CLIENT_ID=custom-client   # non-default OIDC client
+```
+
 ## Entry Points
 
 | Command | Domains | Tools |
 |---|---|---|
-| `transkribus-mcp-server` | All 22 domains | 303 |
+| `transkribus-mcp-server` | All 23 domains | 307 |
 | `transkribus-mcp-collections` | Auth, Collections (core/docs/pages/users/crowd/editdecl/credits/stats/labels/activity/tags) | 134 |
 | `transkribus-mcp-admin` | Auth, Admin, Credits, Uploads, Labels, Files, System, Root | 62 |
 | `transkribus-mcp-transcription` | Auth, Recognition, Layout Analysis, PyLaia, P2PaLA, DU | 47 |
@@ -197,6 +217,7 @@ export TRANSKRIBUS_SESSION_ID=your-session-id
 | `transkribus-mcp-models` | Auth, Models | 26 |
 | `transkribus-mcp-jobs` | Auth, Jobs, Actions | 19 |
 | `transkribus-mcp-search` | Auth, Search, KWS | 16 |
+| `transkribus-mcp-processing` | Processing (Metagrapho) — no legacy auth tools | 4 |
 
 Use split servers to reduce context size — pick only the splits you need.
 

@@ -31,6 +31,7 @@ import { registerFileTools } from './tools/files.js';
 import { registerSystemTools } from './tools/system.js';
 import { registerRootTools } from './tools/root.js';
 import { registerActionTools } from './tools/actions.js';
+import { registerProcessingTools } from './tools/processing.js';
 
 // Single source of truth for which tool modules each published entry point ships.
 // The entry files, src/index.ts and the smoke tests all consume these arrays, so a
@@ -98,8 +99,14 @@ export const adminEntry: readonly ToolRegistrar[] = [
   registerRootTools,
 ];
 
-// The full server is exactly the union of the seven split entries, de-duplicated by
-// function identity (registerAuthTools appears in all seven; Set preserves insertion
+// The Processing (Metagrapho) API is a SEPARATE service with its own OIDC bearer
+// auth, so this entry deliberately carries no registerAuthTools: those tools manage
+// the legacy TrpServer JSESSIONID session, which these four tools never use.
+export const processingEntry: readonly ToolRegistrar[] = [registerProcessingTools];
+
+// The full server is exactly the union of the eight split entries, de-duplicated by
+// function identity (registerAuthTools appears in seven of the eight — not in
+// processingEntry, which uses a different auth scheme; Set preserves insertion
 // order, so this reproduces the hand-written registration order src/index.ts used).
 // Consequence, accepted deliberately: a new tool module has to join one of the split
 // entries above to reach the full server — a module reachable only from index.ts
@@ -113,6 +120,7 @@ export const fullEntry: readonly ToolRegistrar[] = [
     ...jobsEntry,
     ...usersEntry,
     ...adminEntry,
+    ...processingEntry,
   ]),
 ];
 

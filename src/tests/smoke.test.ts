@@ -32,6 +32,7 @@ import { registerFileTools } from '../tools/files.js';
 import { registerSystemTools } from '../tools/system.js';
 import { registerRootTools } from '../tools/root.js';
 import { registerActionTools } from '../tools/actions.js';
+import { registerProcessingTools } from '../tools/processing.js';
 // The entry-point tests below consume the SAME arrays src/index.ts and the
 // src/entry-*.ts binaries do, so dropping a module from a shipped entry point
 // now turns its test red. The per-module tests keep their direct imports above.
@@ -45,6 +46,7 @@ import {
   jobsEntry,
   usersEntry,
   adminEntry,
+  processingEntry,
 } from '../entries.js';
 
 function freshServer(): McpServer {
@@ -56,12 +58,13 @@ function toolCount(server: McpServer): number {
 }
 
 describe('Transkribus MCP Server — smoke tests', () => {
-  it('registers 303 tools for the full server', () => {
+  it('registers 307 tools for the full server', () => {
     const server = freshServer();
     registerAll(server, fullEntry);
     // 5 auth + 129 collections + 42 recognition/training + 21 models
     // + 11 search/KWS + 14 jobs/actions + 24 users/crowd/eLearning + 57 admin/system
-    expect(toolCount(server)).toBe(303);
+    // + 4 processing (Metagrapho)
+    expect(toolCount(server)).toBe(307);
   });
 
   it('registers 5 auth tools', () => {
@@ -247,5 +250,19 @@ describe('Transkribus MCP Server — smoke tests', () => {
     const server = freshServer();
     registerAll(server, adminEntry);
     expect(toolCount(server)).toBe(62); // 5 + 8 + 12 + 11 + 13 + 3 + 2 + 8
+  });
+
+  it('registers 4 processing tools', () => {
+    const server = freshServer();
+    registerProcessingTools(server);
+    expect(toolCount(server)).toBe(4);
+  });
+
+  it('registers 4 tools for the processing entry point', () => {
+    const server = freshServer();
+    registerAll(server, processingEntry);
+    // No auth tools: this API uses OIDC bearer tokens, not the legacy
+    // JSESSIONID session those tools manage.
+    expect(toolCount(server)).toBe(4);
   });
 });

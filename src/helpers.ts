@@ -48,3 +48,17 @@ export function handleRawToolRequest(fn: (params: any) => Promise<CallToolResult
 export function handleToolRequest(fn: (params: any) => Promise<unknown>) {
   return handleRawToolRequest(async (params) => formatResponse(await fn(params)));
 }
+
+/**
+ * For a tool whose upstream response is raw text, not JSON — the Metagrapho
+ * PAGE/ALTO endpoints return `application/xml`. Routed through
+ * handleRawToolRequest so it shares the one error path rather than repeating it.
+ * formatResponse would `JSON.stringify` the XML into an escaped quoted blob and,
+ * since a string is not a Record, would set no `structuredContent` either.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function handleTextToolRequest(fn: (params: any) => Promise<string>) {
+  return handleRawToolRequest(async (params) => ({
+    content: [{ type: 'text', text: await fn(params) }],
+  }));
+}
