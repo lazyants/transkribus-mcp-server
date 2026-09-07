@@ -2,6 +2,8 @@ import axios, { AxiosInstance, AxiosError, Method } from 'axios';
 import { TRANSKRIBUS_API_BASE, MAX_RETRIES, REQUEST_TIMEOUT } from '../constants.js';
 
 let sessionId: string | null = null;
+// In-flight logins, keyed by the session each caller is replacing (see loginOnce).
+const loginPromises = new Map<string | null, Promise<string>>();
 let clientInstance: AxiosInstance | null = null;
 let loginClientInstance: AxiosInstance | null = null;
 
@@ -252,6 +254,39 @@ function sessionFromRequestConfig(config: { headers?: unknown }): string | null 
   return match ? match[1] : null;
 }
 
+/** #39: de-duplicate concurrent logins. Both entry points below can be reached
+ *  by several callers at once — N cold-start tool calls all find `sessionId`
+ *  null, and N in-flight requests can all take a 401 — and each one used to
+ *  fire its own POST /auth/login. They now share one in-flight promise.
+ *
+ *  The memo is KEYED BY `expiredSessionId`, because that argument changes what
+ *  login() returns: with no user/password configured it adopts a configured
+ *  session only when that session differs from the one that just died. Callers
+ *  replacing different dead sessions must therefore not share a result, so they
+ *  get their own login — which is the correct answer, not a missed dedup. Cold
+ *  starts all pass null, so they always share.
+ *
+ *  One entry PER KEY rather than a single slot: with a single slot, a login for
+ *  a second key evicts a still-pending first one, and a later caller with the
+ *  first key then starts a duplicate — the very thing this exists to prevent.
+ *
+ *  Each entry is the promise RETURNED by `.finally()`, not the bare `login()`
+ *  promise: returning the cleanup chain is what propagates a rejection to every
+ *  awaiting caller instead of leaving it unhandled. Entries are removed on
+ *  settle — failure included — so a failed login never poisons the map, and a
+ *  key's next login starts only after the previous one has gone. */
+function loginOnce(options: { expiredSessionId?: string | null } = {}): Promise<string> {
+  const key = options.expiredSessionId ?? null;
+  const inFlight = loginPromises.get(key);
+  if (inFlight) return inFlight;
+
+  const pending: Promise<string> = login(options).finally(() => {
+    loginPromises.delete(key);
+  });
+  loginPromises.set(key, pending);
+  return pending;
+}
+
 function baseClientConfig(): Record<string, unknown> {
   return {
     baseURL: TRANSKRIBUS_API_BASE,
@@ -397,7 +432,7 @@ function createClient(): AxiosInstance {
       const expiredSessionId = sessionFromRequestConfig(config) ?? sessionId;
 
       try {
-        sessionId = await login({ expiredSessionId });
+        sessionId = await loginOnce({ expiredSessionId });
         console.error('[transkribus-mcp] Re-authenticated after 401');
         return client.request(config);
       } catch (loginErr) {
@@ -448,7 +483,7 @@ async function ensureSession(): Promise<void> {
     return;
   }
 
-  sessionId = await login();
+  sessionId = await loginOnce();
   console.error('[transkribus-mcp] Authenticated successfully');
 }
 
