@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { transkribusRequest, transkribusUpload } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
 import { CollIdSchema, IdSchema, intCoerce } from '../schemas/common.js';
-import { resolveTextPayload, exactlyOneOf, appendFilePart } from '../uploads-io.js';
+import { resolvePayload, exactlyOneOf, appendFilePart } from '../uploads-io.js';
 
 export interface UploadDescriptorPageInput {
   fileName: string;
@@ -72,7 +72,7 @@ export function registerUploadTools(server: McpServer): void {
     },
     handleToolRequest(async (params) => {
       const { collId, metsXml, metsFilePath } = params;
-      const xml = resolveTextPayload(metsXml, metsFilePath, 'metsXml', 'metsFilePath');
+      const xml = resolvePayload(metsXml, metsFilePath, 'metsXml', 'metsFilePath');
       return transkribusRequest('POST', '/uploads', xml, { collId }, { 'Content-Type': 'application/xml' });
     })
   );
@@ -137,7 +137,7 @@ export function registerUploadTools(server: McpServer): void {
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     handleToolRequest(async (params) => {
-      const csv = resolveTextPayload(params.csv, params.csvFilePath, 'csv', 'csvFilePath');
+      const csv = resolvePayload(params.csv, params.csvFilePath, 'csv', 'csvFilePath');
       return transkribusRequest('POST', '/uploads/metadata/documents', csv, undefined, { 'Content-Type': 'text/csv' });
     })
   );
@@ -175,7 +175,7 @@ export function registerUploadTools(server: McpServer): void {
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     handleToolRequest(async (params) => {
-      const csv = resolveTextPayload(params.csv, params.csvFilePath, 'csv', 'csvFilePath');
+      const csv = resolvePayload(params.csv, params.csvFilePath, 'csv', 'csvFilePath');
       return transkribusRequest('POST', '/uploads/metadata/isad', csv, undefined, { 'Content-Type': 'text/csv+isad' });
     })
   );

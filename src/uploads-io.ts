@@ -22,20 +22,28 @@ export function readLocalFile(filePath: string): Buffer {
   }
 }
 
-/** Resolve a text payload supplied either inline or as a local file path.
+/** Resolve a request payload supplied either inline or as a local file path.
  *  Exactly one of the two must be present — the tool schemas enforce that with
  *  a `.refine()`, but the XOR is invisible in the emitted JSON Schema, so this
- *  re-checks it at call time. */
-export function resolveTextPayload(
+ *  re-checks it at call time.
+ *
+ *  A file is returned as a Buffer, never as a decoded string. Decoding to
+ *  UTF-8 and letting axios re-encode would corrupt any file that is not
+ *  already UTF-8 — a Windows-1252 metadata CSV loses its accented characters,
+ *  and a UTF-16 METS document becomes mojibake while its XML declaration still
+ *  claims `encoding="UTF-16"`. axios sends a Buffer verbatim, so the bytes on
+ *  the wire are exactly the bytes on disk. Inline content stays a string: the
+ *  caller typed it, so UTF-8 is what it means. */
+export function resolvePayload(
   inline: string | undefined,
   filePath: string | undefined,
   inlineField: string,
   fileField: string,
-): string {
+): string | Buffer {
   if (!exactlyOneOf(inline, filePath)) {
     throw new Error(`Provide exactly one of "${inlineField}" or "${fileField}".`);
   }
-  return inline !== undefined ? inline : readLocalFile(filePath as string).toString('utf-8');
+  return inline !== undefined ? inline : readLocalFile(filePath as string);
 }
 
 /** True when exactly one of the two values was supplied. Used as the predicate

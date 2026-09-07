@@ -103,7 +103,16 @@ let imagePath: string;
 let pageXmlPath: string;
 let metsPath: string;
 let csvPath: string;
+let latin1CsvPath: string;
+let utf16MetsPath: string;
 const IMAGE_BYTES = Buffer.from('89504e470d0a1a0a-FAKE-PNG-PAYLOAD', 'latin1');
+// Windows-1252: "Müller" and "Grün" — 0xFC is ü, which is two bytes in UTF-8.
+const LATIN1_CSV = Buffer.from('docId,title\n7,M\xfcller\n8,Gr\xfcn\n', 'latin1');
+// UTF-16LE with a BOM, and an XML declaration that names that encoding.
+const UTF16_METS = Buffer.concat([
+  Buffer.from([0xff, 0xfe]),
+  Buffer.from('<?xml version="1.0" encoding="UTF-16"?><mets:mets>Müller</mets:mets>', 'utf16le'),
+]);
 
 beforeAll(() => {
   process.env.TRANSKRIBUS_SESSION_ID = 'test-session-id';
@@ -117,6 +126,11 @@ beforeAll(() => {
   writeFileSync(pageXmlPath, '<PcGts>page xml</PcGts>');
   writeFileSync(metsPath, '<mets:mets>from disk</mets:mets>');
   writeFileSync(csvPath, 'docId,title\n7,From Disk\n');
+
+  latin1CsvPath = join(fixtureDir, 'docs-latin1.csv');
+  utf16MetsPath = join(fixtureDir, 'mets-utf16.xml');
+  writeFileSync(latin1CsvPath, LATIN1_CSV);
+  writeFileSync(utf16MetsPath, UTF16_METS);
 });
 
 afterAll(() => {
@@ -283,6 +297,39 @@ describe('bulk metadata tools — CSV media types, not JSON', () => {
   it('reads the CSV from a local file when given a path', async () => {
     await call(uploadTools, 'transkribus_upload_bulk_update_doc_metadata', { csvFilePath: csvPath });
     expect(lastRequest().body.toString('utf-8')).toBe('docId,title\n7,From Disk\n');
+  });
+});
+
+describe('file payloads keep their bytes (no UTF-8 round-trip)', () => {
+  // A file must reach Transkribus byte-for-byte. Decoding it to a JS string and
+  // letting axios re-encode silently corrupts anything that is not already
+  // UTF-8: a Windows-1252 metadata CSV loses its accented characters, and a
+  // UTF-16 METS document turns to mojibake while its XML declaration still
+  // claims encoding="UTF-16".
+  it('sends a Windows-1252 CSV unchanged', async () => {
+    await call(uploadTools, 'transkribus_upload_bulk_update_doc_metadata', { csvFilePath: latin1CsvPath });
+    expect(lastRequest().body.equals(LATIN1_CSV)).toBe(true);
+  });
+
+  it('sends a UTF-16 METS document unchanged, BOM included', async () => {
+    await call(uploadTools, 'transkribus_upload_create_from_mets', { collId: 5, metsFilePath: utf16MetsPath });
+
+    const req = lastRequest();
+    expect(req.body.equals(UTF16_METS)).toBe(true);
+    expect(req.body.subarray(0, 2).equals(Buffer.from([0xff, 0xfe])), 'BOM survived').toBe(true);
+  });
+
+  it('sends a binary-safe METS through the multipart mets part unchanged', async () => {
+    await call(collectionTools, 'transkribus_coll_create_doc_from_mets', {
+      collId: 5,
+      metsFilePath: utf16MetsPath,
+    });
+    expect(lastRequest().body.includes(UTF16_METS), 'the raw file bytes appear in the part').toBe(true);
+  });
+
+  it('still sends inline content as UTF-8', async () => {
+    await call(uploadTools, 'transkribus_upload_create_from_mets', { collId: 5, metsXml: '<mets:mets>Müller</mets:mets>' });
+    expect(lastRequest().body.toString('utf-8')).toBe('<mets:mets>Müller</mets:mets>');
   });
 });
 
