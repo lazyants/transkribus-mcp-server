@@ -2,8 +2,8 @@ import axios, { AxiosInstance, AxiosError, Method } from 'axios';
 import { TRANSKRIBUS_API_BASE, MAX_RETRIES, REQUEST_TIMEOUT } from '../constants.js';
 
 let sessionId: string | null = null;
-let loginPromise: Promise<string> | null = null;
-let loginKey: string | null = null;
+// In-flight logins, keyed by the session each caller is replacing (see loginOnce).
+const loginPromises = new Map<string | null, Promise<string>>();
 let clientInstance: AxiosInstance | null = null;
 let loginClientInstance: AxiosInstance | null = null;
 
@@ -266,24 +266,24 @@ function sessionFromRequestConfig(config: { headers?: unknown }): string | null 
  *  get their own login — which is the correct answer, not a missed dedup. Cold
  *  starts all pass null, so they always share.
  *
- *  The memo is the promise RETURNED by `.finally()`, not the bare `login()`
+ *  One entry PER KEY rather than a single slot: with a single slot, a login for
+ *  a second key evicts a still-pending first one, and a later caller with the
+ *  first key then starts a duplicate — the very thing this exists to prevent.
+ *
+ *  Each entry is the promise RETURNED by `.finally()`, not the bare `login()`
  *  promise: returning the cleanup chain is what propagates a rejection to every
- *  awaiting caller instead of leaving it unhandled. It is cleared on settle —
- *  failure included — so a failed login never poisons the memo for later
- *  callers. The identity check keeps a cleanup from clearing a memo that a
- *  different key has since installed. */
+ *  awaiting caller instead of leaving it unhandled. Entries are removed on
+ *  settle — failure included — so a failed login never poisons the map, and a
+ *  key's next login starts only after the previous one has gone. */
 function loginOnce(options: { expiredSessionId?: string | null } = {}): Promise<string> {
   const key = options.expiredSessionId ?? null;
-  if (loginPromise && loginKey === key) return loginPromise;
+  const inFlight = loginPromises.get(key);
+  if (inFlight) return inFlight;
 
   const pending: Promise<string> = login(options).finally(() => {
-    if (loginPromise === pending) {
-      loginPromise = null;
-      loginKey = null;
-    }
+    loginPromises.delete(key);
   });
-  loginPromise = pending;
-  loginKey = key;
+  loginPromises.set(key, pending);
   return pending;
 }
 
