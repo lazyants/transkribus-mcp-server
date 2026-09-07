@@ -57,7 +57,7 @@ export const REFERENCE_MD: string = [
   '  numeric ID schemas coerce them.',
   '- Responses are JSON; object results also surface as `structuredContent`.',
   '',
-  'See the README for the full tool list — 307 tools across 23 domains, 9 entry points.',
+  'See the README for the full tool list — 304 tools across 23 domains, 9 entry points.',
   '',
 ].join('\n');
 
