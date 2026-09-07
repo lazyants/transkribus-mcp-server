@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] — 2026-09-07
+
+Breaking: three ingestion tools are gone (see **Removed**). The tool count goes
+from 300 to 304.
+
 ### Added
 
 - Support for the Transkribus **Metagrapho ("Processing") API** — 4 tools
@@ -19,76 +24,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   password grant (client `processing-api-client`) using the existing
   `TRANSKRIBUS_USER` / `TRANSKRIBUS_PASSWORD`, refreshes the token automatically,
   and accepts `TRANSKRIBUS_ACCESS_TOKEN` to skip the exchange. Closes #22.
-
-### Security
-
-- The Metagrapho client never attaches an upstream error as `cause` and never
-  copies a response body into an error message; failures report fixed text plus
-  the numeric HTTP status. The legacy client's sanitizer only discovers
-  `sessionId` / `JSESSIONID`-shaped secrets, so an OIDC password, access token or
-  refresh token **echoed back** in an error body would have survived into the MCP
-  tool result and stderr. Covered by regression tests that check both
-  `util.inspect(err, { depth: null })` and `JSON.stringify` — the former is the
-  one that catches a response-body leak.
-
-### Fixed
-
-- **Corrected the documented Processing API version.** Earlier releases (see
-  2.1.0 below) recorded the newer API as "Processing API v2" at `/processing/v2`.
-  Verified against the live service: `/processing/v2` returns **404**, while
-  `/processing/v1` answers and its OpenAPI document self-describes as
-  "Transkribus Metagrapho API" 1.13.1. The request shape differs too — the live
-  service requires `config.textRecognition.htrId`, not `config.modelId`.
-
-### Fixed
-
-- Every REQUIRED numeric tool parameter now accepts a string-encoded number, so
-  an MCP client that serializes numbers as JSON strings can call every tool.
-  `intCoerce` was applied to 191 parameters in 2.0.1; a measurement of all
-  registered tools — every parameter that accepts the number 3 but rejects the
-  string `"3"` — found 24 required stragglers it had missed, in nine modules.
-  Each one made its tool uncallable from such a client with no workaround, since
-  a required parameter cannot simply be omitted. The 18 hand-rolled
-  `index`/`nValues` pagination blocks are coerced too, and now come from
-  `src/schemas/common.ts` rather than being copy-pasted. Their existing default
-  values are unchanged: these parameters go straight into the query string, so
-  `nValues=0` and an omitted `nValues` are different requests. Numeric ARRAY
-  parameters are covered too: five required ones (`userIds`, `documentIds` ×2,
-  `pageIds` ×2) accepted `[1, 2]` but rejected `["1", "2"]`, which fails a
-  string-serializing client exactly as a bare number does. (#33)
-- 16 parameters applied a default the server never published in `tools/list`,
-  in `models.ts` and `collections-pages.ts`. Zod 4 renders a `z.preprocess` pipe
-  — which is every `intCoerce` parameter — from its input leg when emitting JSON
-  Schema in INPUT mode, and drops a `default` attached to an outer wrapper, so
-  `intCoerce(...).optional().default(N)` substituted N while telling the client
-  nothing about it. `.prefault(N)` survives the emit; advertised defaults go from
-  16 missing to 0.
-
-### Changed
-
-- `index` now rejects a negative start index across all pagination parameters,
-  and `index`/`nValues`/`sortDirection` descriptions are the same everywhere.
-  Previously the 32 tools using the shared `PaginationParams` and the 18 with
-  hand-rolled copies disagreed on both.
-
-### Added
-
-- `UserIdSchema`, and `paginationIndex`/`paginationNValues`/`paginationWithDefaults`
-  in `src/schemas/common.ts`.
-- `src/tests/schema-coercion.test.ts`, two ratchets over the whole registered tool
-  surface: no required numeric parameter may reject its own string form — bare or
-  inside an array — and every default the server applies must be advertised in
-  `tools/list`. Both scan the live schemas, so a new tool that reintroduces either
-  defect fails CI by name.
-
-### Known limitation
-
-- 137 OPTIONAL numeric parameters still reject string-encoded numbers. An optional
-  filter can be omitted, so the tool stays usable; several are counts, timestamps
-  or floats that need per-parameter judgement rather than a mechanical sweep.
-
-### Added
-
 - `transkribus_job_wait` — polls a job until it reaches `FINISHED`, `FAILED` or
   `CANCELED`, so an LLM client no longer burns a turn per "still RUNNING" poll.
   When the finished job's `result` carries an `http(s)` URL — an export's ZIP or
@@ -125,9 +60,136 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   store would otherwise stall the MCP stdio handshake. Credentials added,
   corrected or rotated while the server runs are picked up: re-authentication
   after a 401 re-reads both sources rather than reusing the snapshot the
-  process started with. README and SECURITY.md
-  document the setup commands and the resolution order. Ported from
-  lexware-mcp-server 4.2.0 (#44).
+  process started with. README and SECURITY.md document the setup commands and
+  the resolution order. Ported from lexware-mcp-server 4.2.0 (#44).
+- `UserIdSchema`, and `paginationIndex`/`paginationNValues`/`paginationWithDefaults`
+  in `src/schemas/common.ts`.
+- `src/tests/schema-coercion.test.ts`, two ratchets over the whole registered tool
+  surface: no required numeric parameter may reject its own string form — bare or
+  inside an array — and every default the server applies must be advertised in
+  `tools/list`. Both scan the live schemas, so a new tool that reintroduces either
+  defect fails CI by name.
+
+### Changed
+
+- `src/entries.ts` now holds one registrar array per entry point, consumed by the
+  entry file, by `index.ts` and by the smoke test. Each list had been written out
+  three or four times, and the test re-registered the modules itself — so it
+  asserted its own copy rather than the shipped one, and dropping a registrar
+  from an entry file left the corresponding test green. Part of #34.
+- `index` now rejects a negative start index across all pagination parameters,
+  and `index`/`nValues`/`sortDirection` descriptions are the same everywhere.
+  Previously the 32 tools using the shared `PaginationParams` and the 18 with
+  hand-rolled copies disagreed on both.
+- Deleted the seven unused response-interface modules under `src/types`. Nothing
+  in the repo imported them: tool handlers type their responses through
+  `transkribusRequest<T>`'s `unknown` default, so the interfaces described a
+  contract nothing checked. Part of #34.
+- Dependency bumps: axios 1.19.0 → 1.20.0, zod 4.4.3 → 4.5.4, eslint
+  10.8.1 → 10.9.1, globals 17.11.0 → 17.12.0, typescript-eslint 8.67.0 → 8.69.0.
+
+### Removed
+
+- **`transkribus_coll_create_doc_from_pdf`, `transkribus_coll_upload_doc` and
+  `transkribus_coll_upload_doc_multipart`.** Their wire formats appear in no
+  public Transkribus client and could never have succeeded against the live
+  server. A client calling one of them was already getting an error; it now gets
+  an unknown-tool error instead. Use the corrected `transkribus_coll_create_upload`
+  + `transkribus_coll_put_upload` pair, or `transkribus_coll_create_doc_from_mets`.
+  Part of #28.
+
+### Fixed
+
+- **Document ingestion works end to end.** Nine ingestion tools sent a JSON body
+  to endpoints that require multipart, XML, CSV or bare query parameters, so
+  there was no working way to get a document into Transkribus. The contracts were
+  re-derived from the live TrpServer WADL and the official Java client, then
+  confirmed against the live server. `POST /uploads` takes `collId` as a query
+  parameter and a body that is either a `documentUploadDescriptor`
+  (`{ md, pageList: { pages } }` — a wrapper object, not a flat array) or a METS
+  XML document sent as `application/xml`; `PUT /uploads/{uploadId}` is real
+  multipart with parts `img` and `xml`, fed from local file paths;
+  `createDocFromIiifUrl` / `createDocFromMetsUrl` / `ingest` read the URL from the
+  `fileName` query parameter and no longer send an unread body;
+  `createDocFromMets` is multipart with a part named `mets`; the bulk metadata
+  endpoints take `text/csv` and `text/csv+isad`. Files are sent as raw bytes
+  rather than decoded and re-encoded, so a Windows-1252 metadata CSV or a UTF-16
+  METS document arrives intact. Closes #28.
+- Every REQUIRED numeric tool parameter now accepts a string-encoded number, so
+  an MCP client that serializes numbers as JSON strings can call every tool.
+  `intCoerce` was applied to 191 parameters in 2.0.1; a measurement of all
+  registered tools — every parameter that accepts the number 3 but rejects the
+  string `"3"` — found 24 required stragglers it had missed, in nine modules.
+  Each one made its tool uncallable from such a client with no workaround, since
+  a required parameter cannot simply be omitted. The 18 hand-rolled
+  `index`/`nValues` pagination blocks are coerced too, and now come from
+  `src/schemas/common.ts` rather than being copy-pasted. Their existing default
+  values are unchanged: these parameters go straight into the query string, so
+  `nValues=0` and an omitted `nValues` are different requests. Numeric ARRAY
+  parameters are covered too: five required ones (`userIds`, `documentIds` ×2,
+  `pageIds` ×2) accepted `[1, 2]` but rejected `["1", "2"]`, which fails a
+  string-serializing client exactly as a bare number does. (#33)
+- 16 parameters applied a default the server never published in `tools/list`,
+  in `models.ts` and `collections-pages.ts`. Zod 4 renders a `z.preprocess` pipe
+  — which is every `intCoerce` parameter — from its input leg when emitting JSON
+  Schema in INPUT mode, and drops a `default` attached to an outer wrapper, so
+  `intCoerce(...).optional().default(N)` substituted N while telling the client
+  nothing about it. `.prefault(N)` survives the emit; advertised defaults go from
+  16 missing to 0.
+- The 429 retry interceptor parsed `Retry-After` with a bare `parseInt`, so an
+  RFC 7231 HTTP-date became `NaN` and `setTimeout` fired immediately: every retry
+  landed inside the rate-limit window instead of after it, and a large
+  delta-seconds value overflowed `setTimeout`'s 32-bit coercion the same way.
+  `parseRetryAfterMs` accepts delta-seconds or a strict IMF-fixdate, validated by
+  a `Date.UTC` round-trip so normalized or obsolete date forms are rejected
+  rather than yielding a wrong delay, and clamps the result to a non-negative
+  finite delay; an unparseable header falls back to exponential backoff. The 429
+  branch has its first tests, which assert the delay itself under fake timers.
+  Closes #31.
+- Concurrent cold-start tool calls each found `sessionId` null and fired their own
+  `POST /auth/login`, and concurrent 401s did the same through the re-auth
+  interceptor. Both paths now share one memoized in-flight login promise, held per
+  replaced session — `login()` takes an `expiredSessionId` and that argument
+  changes its result, so callers replacing different sessions must not share a
+  login. The memo stores the promise returned by `.finally()`, so a rejection
+  reaches every awaiting caller instead of going unhandled, and it is cleared on
+  settle — failure included — so a failed login never poisons it for later
+  callers. Closes #39.
+- Raised the `qs` and `fast-uri` override floors to 6.16.0 and 3.1.7. The CI audit
+  gate had gone red with no change to this repo: four further `fast-uri`
+  advisories extended its vulnerable range through 3.1.5 and two further `qs`
+  advisories extended theirs through 6.15.3, so the existing pins no longer
+  cleared the gate. `fast-uri` stays on the 3.x line, inside ajv's declared
+  `^3.0.1`.
+- **Corrected the documented Processing API version.** Earlier releases (see
+  2.1.0 below) recorded the newer API as "Processing API v2" at `/processing/v2`.
+  Verified against the live service: `/processing/v2` returns **404**, while
+  `/processing/v1` answers and its OpenAPI document self-describes as
+  "Transkribus Metagrapho API" 1.13.1. The request shape differs too — the live
+  service requires `config.textRecognition.htrId`, not `config.modelId`.
+
+### Security
+
+- The Metagrapho client never attaches an upstream error as `cause` and never
+  copies a response body into an error message; failures report fixed text plus
+  the numeric HTTP status. The legacy client's sanitizer only discovers
+  `sessionId` / `JSESSIONID`-shaped secrets, so an OIDC password, access token or
+  refresh token **echoed back** in an error body would have survived into the MCP
+  tool result and stderr. Covered by regression tests that check both
+  `util.inspect(err, { depth: null })` and `JSON.stringify` — the former is the
+  one that catches a response-body leak.
+- A regression test now holds the login password to being scrubbed from a failed
+  login error. The cookie-leak test only proved `JSESSIONID` was redacted;
+  `scrubConfig` also drops `config.data` and `config.params`, the two request-side
+  surfaces that carry the `pw=` form field, but nothing held it to that. The test
+  seeds the password into both and checks the sentinel really was sent, so a clean
+  result means redaction rather than absence. Part of #34.
+
+### Known limitation
+
+- 137 OPTIONAL numeric parameters still reject string-encoded numbers. An optional
+  filter can be omitted, so the tool stays usable; several are counts, timestamps
+  or floats that need per-parameter judgement rather than a mechanical sweep.
 
 ## [3.1.0] — 2026-08-20
 
@@ -408,6 +470,7 @@ identical to 3.0.0.
 - Initial release under MIT (`io.github.lazyants/transkribus` MCP Registry
   descriptor only; npm package version was `1.0.0`).
 
+[4.0.0]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v4.0.0
 [3.1.0]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v3.1.0
 [3.0.1]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v3.0.1
 [3.0.0]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v3.0.0
