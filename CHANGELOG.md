@@ -23,6 +23,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as base64 with filename and MIME type. OIDC authentication and PAGE/ALTO XML
   remain compatible across both backends. Closes #75.
 
+### Fixed
+
+- Bodiless legacy REST requests omit `Content-Type`, including axios's automatic
+  form-content fallback, so query-only PyLaia recognition no longer triggers an
+  empty JSON-body parse. JSON bodies and explicit XML/CSV/multipart encoding are
+  preserved. Fixes #71.
+- ATR sends `colId` and maps a supplied `pageNr` to the string `pageStr`, keeping
+  recognition limited to the requested page. Omitting `pageNr` continues to
+  recognize the whole document. Fixes #72.
+- OCR sends collection, document and options in query parameters, mapping
+  `docId` to `id` and `ocrType` to `type`. The deprecated optional `id` is a
+  document-ID alias and must match `docId`; a conflicting value fails before
+  submitting recognition. Fixes #76.
+- Adding a recognition model to another collection sends the destination as the
+  `collId` query parameter with no body. Fixes #77.
+
 ## [4.0.0] — 2026-09-07
 
 Breaking: three ingestion tools are gone (see **Removed**). The tool count goes
