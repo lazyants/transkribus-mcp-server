@@ -101,7 +101,8 @@ export const adminEntry: readonly ToolRegistrar[] = [
 
 // The Processing (Metagrapho) API is a SEPARATE service with its own OIDC bearer
 // auth, so this entry deliberately carries no registerAuthTools: those tools manage
-// the legacy TrpServer JSESSIONID session, which these four tools never use.
+// the legacy TrpServer JSESSIONID session. Backend selection controls whether
+// this registrar exposes four v1 tools or six v2 tools.
 export const processingEntry: readonly ToolRegistrar[] = [registerProcessingTools];
 
 // The full server is exactly the union of the eight split entries, de-duplicated by

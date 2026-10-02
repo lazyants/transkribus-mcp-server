@@ -1,7 +1,7 @@
 {
   "name": "@lazyants/transkribus-mcp-server",
   "version": "4.0.0",
-  "description": "MCP server for the Transkribus REST API — manage collections, documents, recognition, models, and more, plus the Metagrapho Processing API. 304 tools across 23 resource domains.",
+  "description": "MCP server for Transkribus REST and Processing APIs — collections, documents, recognition, models, and more. 304 tools by default, 306 with optional Processing v2 beta, across 23 resource domains.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

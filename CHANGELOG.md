@@ -10,6 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Optional Developer Platform v2 beta backend selected with
+  `TRANSKRIBUS_PROCESSING_BACKEND=v2`, using the published staging host.
+  Metagrapho v1 remains the default with its existing four tools and numeric IDs.
+  v2 accepts numeric IDs and UUIDs, reports `CANCELLED` as terminal, indexes job
+  links by stable `rel`, and describes its 24-hour result retention.
+- v2-only `transkribus_processing_longpoll`, including an optional polling
+  interval and non-error timeout results for HTTP 408 or a 45-second deadline,
+  and `transkribus_processing_get_result_zip`, returning a bounded ZIP archive
+  as base64 with filename and MIME type. OIDC authentication and PAGE/ALTO XML
+  remain compatible across both backends. Closes #75.
+
 ### Fixed
 
 - Bodiless legacy REST requests omit `Content-Type`, including axios's automatic
