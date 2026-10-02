@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerAuthTools } from '../tools/auth.js';
 import { registerCollectionCoreTools } from '../tools/collections-core.js';
@@ -58,6 +58,8 @@ function toolCount(server: McpServer): number {
 }
 
 describe('Transkribus MCP Server — smoke tests', () => {
+  beforeEach(() => vi.stubEnv('TRANSKRIBUS_PROCESSING_BACKEND', 'v1'));
+  afterEach(() => vi.unstubAllEnvs());
   it('registers 304 tools for the full server', () => {
     const server = freshServer();
     registerAll(server, fullEntry);
@@ -264,5 +266,15 @@ describe('Transkribus MCP Server — smoke tests', () => {
     // No auth tools: this API uses OIDC bearer tokens, not the legacy
     // JSESSIONID session those tools manage.
     expect(toolCount(server)).toBe(4);
+  });
+
+  it('registers 306 full-server and 6 processing-entry tools with v2 selected', () => {
+    vi.stubEnv('TRANSKRIBUS_PROCESSING_BACKEND', 'v2');
+    const fullServer = freshServer();
+    registerAll(fullServer, fullEntry);
+    expect(toolCount(fullServer)).toBe(306);
+    const processingServer = freshServer();
+    registerAll(processingServer, processingEntry);
+    expect(toolCount(processingServer)).toBe(6);
   });
 });

@@ -1,19 +1,31 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { metagraphoRequest, metagraphoRequestText } from '../services/metagrapho.js';
+import {
+  describeProcessingJob,
+  getProcessingBackend,
+  metagraphoLongpoll,
+  metagraphoRequest,
+  metagraphoRequestText,
+  metagraphoResultZip,
+  type ProcessingJob,
+} from '../services/metagrapho.js';
 import { handleTextToolRequest, handleToolRequest } from '../helpers.js';
 import { intCoerce } from '../schemas/common.js';
 
 /**
  * Tools for the Transkribus Metagrapho ("Processing") API — a separate service
- * from the legacy TrpServer REST API the other ~300 tools target. Shapes follow
- * https://transkribus.eu/processing/v1/openapi.json ("Transkribus Metagrapho
- * API" 1.13.1).
+ * from the legacy TrpServer REST API. v1 is the default; v2 follows the published
+ * Developer Platform staging contract at api-staging.transkribus.org/v2/openapi.json.
  */
 
-const ProcessIdSchema = intCoerce(z.number().int().positive()).describe(
-  'Process ID returned when the image was submitted'
-);
+const NumericProcessIdSchema = intCoerce(z.number().int().positive());
+// Give v2 discovery a typed input before coercion; the v1 input schema stays
+// unchanged. The final numeric schema still rejects unsafe or nonpositive IDs.
+const V2NumericProcessIdSchema = z.union([
+  z.number().int().positive(),
+  z.string().regex(/^-?\d+$/),
+]).pipe(NumericProcessIdSchema as z.ZodType<number, number | string>);
+type ProcessParams = { processId: number | string };
 
 const LineDetectionSchema = z
   .object({
@@ -93,6 +105,11 @@ const ImageSchema = z
   .describe('The image to process: exactly one of imageUrl or base64');
 
 export function registerProcessingTools(server: McpServer): void {
+  const v2 = getProcessingBackend() === 'v2';
+  const ProcessIdSchema = (v2
+    ? z.union([V2NumericProcessIdSchema, z.string().uuid()])
+    : NumericProcessIdSchema
+  ).describe(v2 ? 'Numeric process ID or UUID returned by the job' : 'Process ID returned when the image was submitted');
   // 1. POST /processes
   server.registerTool(
     'transkribus_processing_submit_image',
@@ -116,7 +133,9 @@ export function registerProcessingTools(server: McpServer): void {
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
-    handleToolRequest(async (params) => metagraphoRequest('POST', '/processes', params))
+    handleToolRequest(async (params) =>
+      describeProcessingJob(await metagraphoRequest<ProcessingJob>('POST', '/processes', params))
+    )
   );
 
   // 2. GET /processes/{processId}
@@ -126,12 +145,14 @@ export function registerProcessingTools(server: McpServer): void {
       title: 'Get Processing Status',
       description:
         'Get the status of a Processing API job, including the recognised text once it has ' +
-        'finished. Status is one of CREATED, WAITING, RUNNING, FINISHED or FAILED; results are kept for two days.',
+        (v2
+          ? 'finished. Status is CREATED, WAITING, RUNNING, FINISHED, FAILED or CANCELLED; results are kept for 24 hours after completion, and links are indexed by rel.'
+          : 'finished. Status is one of CREATED, WAITING, RUNNING, FINISHED or FAILED; results are kept for two days.'),
       inputSchema: z.object({ processId: ProcessIdSchema }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
-    handleToolRequest(async ({ processId }: { processId: number }) =>
-      metagraphoRequest('GET', `/processes/${processId}`)
+    handleToolRequest(async ({ processId }: ProcessParams) =>
+      describeProcessingJob(await metagraphoRequest<ProcessingJob>('GET', `/processes/${processId}`))
     )
   );
 
@@ -146,7 +167,7 @@ export function registerProcessingTools(server: McpServer): void {
       inputSchema: z.object({ processId: ProcessIdSchema }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
-    handleTextToolRequest(async ({ processId }: { processId: number }) =>
+    handleTextToolRequest(async ({ processId }: ProcessParams) =>
       metagraphoRequestText(`/processes/${processId}/page`)
     )
   );
@@ -162,8 +183,40 @@ export function registerProcessingTools(server: McpServer): void {
       inputSchema: z.object({ processId: ProcessIdSchema }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
-    handleTextToolRequest(async ({ processId }: { processId: number }) =>
+    handleTextToolRequest(async ({ processId }: ProcessParams) =>
       metagraphoRequestText(`/processes/${processId}/alto`)
     )
+  );
+
+  if (!v2) return;
+
+  server.registerTool(
+    'transkribus_processing_longpoll',
+    {
+      title: 'Longpoll Processing Status',
+      description:
+        'Wait for a v2 job status observation for up to 45 seconds, with an optional polling interval in milliseconds. Returns terminal state and links by rel, or timedOut with unknown terminal state on HTTP 408 or the local deadline; results are retained for 24 hours after completion.',
+      inputSchema: z.object({
+        processId: ProcessIdSchema,
+        interval: intCoerce(z.number().int().min(-2147483648).max(2147483647))
+          .optional().describe('Server polling interval in milliseconds (int32)'),
+      }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    handleToolRequest(async ({ processId, interval }: ProcessParams & { interval?: number }) =>
+      metagraphoLongpoll(processId, interval)
+    )
+  );
+
+  server.registerTool(
+    'transkribus_processing_get_result_zip',
+    {
+      title: 'Get Processing Result ZIP',
+      description:
+        'Download a finished v2 job result as a ZIP, up to 20 MiB, returned as base64 data with filename and MIME type. Results are retained for 24 hours after completion; unavailable results return HTTP 404.',
+      inputSchema: z.object({ processId: ProcessIdSchema }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    handleToolRequest(async ({ processId }: ProcessParams) => metagraphoResultZip(processId))
   );
 }

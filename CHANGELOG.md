@@ -10,6 +10,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Optional Developer Platform v2 beta backend selected with
+  `TRANSKRIBUS_PROCESSING_BACKEND=v2`, using the published staging host.
+  Metagrapho v1 remains the default with its existing four tools and numeric IDs.
+  v2 accepts numeric IDs and UUIDs, reports `CANCELLED` as terminal, indexes job
+  links by stable `rel`, and describes its 24-hour result retention.
+- v2-only `transkribus_processing_longpoll`, including an optional polling
+  interval and non-error timeout results for HTTP 408 or a 45-second deadline,
+  and `transkribus_processing_get_result_zip`, returning a bounded ZIP archive
+  as base64 with filename and MIME type. OIDC authentication and PAGE/ALTO XML
+  remain compatible across both backends. Closes #75.
+
+### Fixed
+
+- Bodiless legacy REST requests omit `Content-Type`, including axios's automatic
+  form-content fallback, so query-only PyLaia recognition no longer triggers an
+  empty JSON-body parse. JSON bodies and explicit XML/CSV/multipart encoding are
+  preserved. Fixes #71.
+- ATR sends `colId` and maps a supplied `pageNr` to the string `pageStr`, keeping
+  recognition limited to the requested page. Omitting `pageNr` continues to
+  recognize the whole document. Fixes #72.
+- OCR sends collection, document and options in query parameters, mapping
+  `docId` to `id` and `ocrType` to `type`. The deprecated optional `id` is a
+  document-ID alias and must match `docId`; a conflicting value fails before
+  submitting recognition. Fixes #76.
+- Adding a recognition model to another collection sends the destination as the
+  `collId` query parameter with no body. Fixes #77.
+
 ## [4.0.0] — 2026-09-07
 
 Breaking: three ingestion tools are gone (see **Removed**). The tool count goes

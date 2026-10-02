@@ -1,4 +1,4 @@
-import axios, { AxiosInstance, AxiosError, Method } from 'axios';
+import axios, { AxiosInstance, AxiosError, AxiosHeaders, Method } from 'axios';
 import { TRANSKRIBUS_API_BASE, MAX_RETRIES, REQUEST_TIMEOUT } from '../constants.js';
 
 let sessionId: string | null = null;
@@ -1081,12 +1081,18 @@ export async function transkribusRequest<T = unknown>(
   await ensureSession();
   try {
     const client = getClient();
+    const requestHeaders = new AxiosHeaders(headers);
+    if (data === undefined) {
+      // `false` also suppresses axios's POST/PUT/PATCH form-content fallback;
+      // deleting the default alone still sends a Content-Type for an empty body.
+      requestHeaders.set('Content-Type', false);
+    }
     const response = await client.request<T>({
       method,
       url: path,
       data,
       params: params ? stripUndefined(params) : undefined,
-      headers,
+      headers: requestHeaders,
     });
     return response.data;
   } catch (err) {
