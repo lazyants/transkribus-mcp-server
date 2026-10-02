@@ -1,8 +1,11 @@
-import axios, { AxiosError, AxiosInstance, AxiosRequestConfig, Method } from 'axios';
+import axios, { AxiosError, AxiosInstance, AxiosRequestConfig, AxiosResponse, Method } from 'axios';
 import {
   MAX_RETRIES,
   METAGRAPHO_API_BASE,
   METAGRAPHO_CLIENT_ID,
+  PROCESSING_V2_API_BASE,
+  PROCESSING_LONGPOLL_TIMEOUT_MS,
+  PROCESSING_ZIP_MAX_BYTES,
   READCOOP_TOKEN_URL,
   REQUEST_TIMEOUT,
   TOKEN_EXPIRY_SKEW_MS,
@@ -39,6 +42,61 @@ let tokenInFlight: Promise<string> | null = null;
 
 let clientInstance: AxiosInstance | null = null;
 let tokenClientInstance: AxiosInstance | null = null;
+
+export type ProcessingBackend = 'v1' | 'v2';
+
+/** Explicit selection only: an invalid value must never silently route a job
+ * to a different backend. Both URLs are fixed to documented vendor hosts. */
+export function getProcessingBackend(): ProcessingBackend {
+  const backend = process.env.TRANSKRIBUS_PROCESSING_BACKEND ?? 'v1';
+  if (backend !== 'v1' && backend !== 'v2') {
+    throw new Error('TRANSKRIBUS_PROCESSING_BACKEND must be v1 or v2');
+  }
+  return backend;
+}
+
+export interface ProcessingLink {
+  rel: string;
+  href: string;
+  title?: string;
+  method?: string;
+}
+
+export interface ProcessingJob {
+  processId: number | string;
+  status: string;
+  links?: ProcessingLink[];
+  [key: string]: unknown;
+}
+
+/** Keep the vendor response intact and expose lifecycle information for v2.
+ * Titles are display text; only rel identifies an operation. Link URLs are
+ * returned as data and never followed with our bearer token. */
+export function describeProcessingJob(job: ProcessingJob): ProcessingJob {
+  if (getProcessingBackend() === 'v1') return job;
+  const linksByRel = Object.fromEntries(
+    (job.links ?? []).map((link) => [link.rel, link])
+  );
+  const terminal = ['FINISHED', 'FAILED', 'CANCELLED'].includes(job.status);
+  return {
+    ...job,
+    terminal,
+    pollingAvailable: !terminal && Object.hasOwn(linksByRel, 'longpoll'),
+    linksByRel,
+  };
+}
+
+function requireV2(): void {
+  if (getProcessingBackend() !== 'v2') {
+    throw new Error('This operation requires TRANSKRIBUS_PROCESSING_BACKEND=v2');
+  }
+}
+
+class ProcessingTimeout extends Error {
+  constructor() {
+    super('Processing API longpoll timed out');
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -311,7 +369,6 @@ function attachRateLimitRetry(client: AxiosInstance): void {
 
 function createClient(): AxiosInstance {
   const client = axios.create({
-    baseURL: METAGRAPHO_API_BASE,
     timeout: REQUEST_TIMEOUT,
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
   });
@@ -319,6 +376,7 @@ function createClient(): AxiosInstance {
   // Attach a fresh bearer on every request rather than baking one into the
   // instance, so a token replaced after a 401 is picked up by the replay.
   client.interceptors.request.use(async (config) => {
+    config.baseURL = getProcessingBackend() === 'v2' ? PROCESSING_V2_API_BASE : METAGRAPHO_API_BASE;
     config.headers['Authorization'] = `Bearer ${await ensureToken()}`;
     return config;
   });
@@ -362,13 +420,23 @@ function getClient(): AxiosInstance {
 
 /** The single request path, so every failure leaves through metagraphoError
  *  with the same context and no upstream detail can escape by another route. */
-async function request<T>(config: AxiosRequestConfig): Promise<T> {
+async function requestResponse<T>(
+  config: AxiosRequestConfig,
+  longpoll = false,
+): Promise<AxiosResponse<T>> {
   try {
-    const response = await getClient().request<T>(config);
-    return response.data;
+    return await getClient().request<T>(config);
   } catch (err) {
+    if (longpoll && err instanceof AxiosError &&
+      (err.response?.status === 408 || err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT')) {
+      throw new ProcessingTimeout();
+    }
     throw metagraphoError('Processing API request', err);
   }
+}
+
+async function request<T>(config: AxiosRequestConfig): Promise<T> {
+  return (await requestResponse<T>(config)).data;
 }
 
 /** JSON request against the Metagrapho API. */
@@ -391,6 +459,75 @@ export async function metagraphoRequestText(path: string): Promise<string> {
     headers: { Accept: 'application/xml' },
   });
   return String(data);
+}
+
+/** One bounded longpoll call. A 200 is a status observation, not proof of a
+ * terminal state; a timeout contains no newly observed status. */
+export async function metagraphoLongpoll(processId: number | string, interval?: number): Promise<unknown> {
+  requireV2();
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new ProcessingTimeout());
+      controller.abort();
+    }, PROCESSING_LONGPOLL_TIMEOUT_MS);
+  });
+  try {
+    const response = await Promise.race([
+      requestResponse<ProcessingJob>({
+        method: 'GET',
+        url: `/processes/longpoll/${encodeURIComponent(processId)}`,
+        params: interval === undefined ? undefined : { interval },
+        signal: controller.signal,
+        timeout: PROCESSING_LONGPOLL_TIMEOUT_MS,
+      }, true),
+      deadline,
+    ]);
+    return { ...describeProcessingJob(response.data), timedOut: false };
+  } catch (err) {
+    if (!(err instanceof ProcessingTimeout)) throw err;
+    return { processId, timedOut: true, terminal: null };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Return a bounded ZIP as an MCP-serializable download. Never unpack archives
+ * or follow server-supplied result links or redirects. */
+export async function metagraphoResultZip(processId: number | string): Promise<{
+  filename: string; mimeType: string; encoding: string; byteLength: number; data: string;
+}> {
+  requireV2();
+  const response = await requestResponse<ArrayBuffer>({
+    method: 'GET',
+    url: `/processes/${encodeURIComponent(processId)}/result`,
+    responseType: 'arraybuffer',
+    headers: { Accept: 'application/zip' },
+    maxContentLength: PROCESSING_ZIP_MAX_BYTES,
+    maxRedirects: 0,
+  });
+  const mimeType = String(response.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+  if (mimeType !== 'application/zip') {
+    throw new Error('Processing API result is not application/zip');
+  }
+  if (!Buffer.isBuffer(response.data) && !(response.data instanceof ArrayBuffer)) {
+    throw new Error('Processing API result is not binary ZIP data');
+  }
+  const archive = Buffer.from(response.data);
+  if (archive.length > PROCESSING_ZIP_MAX_BYTES) {
+    throw new Error('Processing API ZIP result exceeds the 20 MiB download limit');
+  }
+  if (archive.length < 4 || !['504b0304', '504b0506', '504b0708'].includes(archive.subarray(0, 4).toString('hex'))) {
+    throw new Error('Processing API result has no ZIP signature');
+  }
+  return {
+    filename: `processing-${processId}.zip`,
+    mimeType,
+    encoding: 'base64',
+    byteLength: archive.length,
+    data: archive.toString('base64'),
+  };
 }
 
 /** Test-only surface for the pure helpers that have no other seam. Exported as

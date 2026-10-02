@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.lazyants/transkribus",
-  "description": "MCP server for the Transkribus REST API — collections, documents, HTR/OCR, and models.",
+  "description": "Transkribus REST and Processing APIs — collections, HTR/OCR; default v1, optional v2 beta.",
   "repository": {
     "url": "https://github.com/lazyants/transkribus-mcp-server",
     "source": "github"
