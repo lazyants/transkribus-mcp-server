@@ -73,6 +73,8 @@ describe('reference resource — packaging from compiled dist', () => {
       );
     }
     expect(shippedEntries.sort()).toEqual([...binTargets].sort());
+    expect([...files].some((f) => f.startsWith('dist/tests/') || f.endsWith('.test.js'))).toBe(false);
+    expect([...files].some((f) => f.endsWith('.map'))).toBe(false);
   });
 });
 

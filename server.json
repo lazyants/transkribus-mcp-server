@@ -17,6 +17,37 @@
       "registryType": "npm",
       "identifier": "@lazyants/transkribus-mcp-server",
       "version": "4.0.0",
+      "environmentVariables": [
+        {
+          "name": "TRANSKRIBUS_USER",
+          "description": "Account email; use with TRANSKRIBUS_PASSWORD when credentials are absent from the OS keyring.",
+          "isRequired": false
+        },
+        {
+          "name": "TRANSKRIBUS_PASSWORD",
+          "description": "Account password; use with TRANSKRIBUS_USER when credentials are absent from the OS keyring.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "TRANSKRIBUS_SESSION_ID",
+          "description": "Existing session ID for the legacy API; an alternative to account credentials.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "TRANSKRIBUS_ACCESS_TOKEN",
+          "description": "OIDC bearer token for the Processing API; an alternative to account credentials.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "TRANSKRIBUS_KEYRING_SERVICE",
+          "description": "OS keyring service containing account credentials or a legacy session ID.",
+          "default": "transkribus-mcp",
+          "isRequired": false
+        }
+      ],
       "transport": {
         "type": "stdio"
       }
