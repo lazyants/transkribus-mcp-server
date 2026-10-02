@@ -48,8 +48,9 @@ const PINS = {
   // JSX cross-request disclosure, cx() XSS, CORS/Language ReDoS, proxy headers.
   // Static-generation traversal (GHSA-gqvv-2mrq-wpjv), nested form DoS
   // (GHSA-g6gw-c38x-mqfc), fragment parsing (GHSA-crvj-82cr-hjcx), and
-  // boundary-component XSS (GHSA-hxh3-vqpv-xpqv).
-  hono: pin('^4.13.7'),
+  // boundary-component XSS (GHSA-hxh3-vqpv-xpqv), and serveStatic double decoding
+  // middleware bypass (GHSA-5r4p-p66f-jhc7).
+  hono: pin('^4.13.11'),
   // CRLF injection via unescaped multipart field/file names (GHSA-hmw2-7cc7-3qxx).
   'form-data': pin('^4.0.6'),
   // Host confusion via backslash authority delimiter / failed IDN canonicalization.
