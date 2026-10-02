@@ -45,8 +45,9 @@ const PINS = {
   // comma parsing (GHSA-x5fp-wj9c-mxmx) and DoS via attacker-controlled isBuffer
   // (GHSA-4mjr-xmp4-gh2g) extended the vulnerable range through 6.15.3.
   qs: pin('^6.16.0'),
-  // JSX boundary XSS (GHSA-hxh3-vqpv-xpqv), plus parser and toSSG fixes.
-  hono: pin('^4.13.7'),
+  // JSX boundary XSS (GHSA-hxh3-vqpv-xpqv) and serveStatic double decoding
+  // (GHSA-5r4p-p66f-jhc7), plus parser and toSSG fixes.
+  hono: pin('^4.13.11'),
   // CRLF injection via unescaped multipart field/file names (GHSA-hmw2-7cc7-3qxx).
   'form-data': pin('^4.0.6'),
   // Host confusion via backslash authority delimiter / failed IDN canonicalization.
