@@ -6,15 +6,12 @@ export const REQUEST_TIMEOUT = 60_000;
 // TrpServer REST API above, with its own base URL, its own OIDC bearer-token auth,
 // and its own client in services/metagrapho.ts.
 //
-// The version is `v1` and was verified against the live service, not taken from
-// vendor prose: `GET /processing/v1/processes` answers 401 (exists, auth required)
-// while `/processing/v2` and `/processing/v3` answer 404, and
-// https://transkribus.eu/processing/v1/openapi.json self-describes as
-// "Transkribus Metagrapho API" 1.13.1 with `servers: [https://transkribus.eu/processing/v1]`.
-// Some vendor marketing snippets still show a `/processing/v2` URL and a
-// `config.modelId` field; both are wrong against the live service, which requires
-// `config.textRecognition.htrId`. Re-probe before changing this constant.
+// v1 remains the default. The Developer Platform v2 beta OpenAPI publishes the
+// staging host below (verified 2026-10-02), not /processing/v2 on transkribus.eu.
 export const METAGRAPHO_API_BASE = 'https://transkribus.eu/processing/v1';
+export const PROCESSING_V2_API_BASE = 'https://api-staging.transkribus.org/v2';
+export const PROCESSING_LONGPOLL_TIMEOUT_MS = 45_000;
+export const PROCESSING_ZIP_MAX_BYTES = 20 * 1024 * 1024;
 
 // READCOOP SSO (Keycloak). The password and refresh grants against this endpoint are
 // the vendor's own documented headless path — an MCP server on stdio cannot run the

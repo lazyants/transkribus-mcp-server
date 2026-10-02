@@ -4,14 +4,14 @@
 
 MCP server for the [Transkribus REST API](https://transkribus.eu/). Manage collections, documents, HTR/OCR recognition, models, and more through the Model Context Protocol.
 
-**304 tools** across 23 resource domains, with 9 entry points so you can pick the right server for your MCP client's tool limit.
+**304 tools by default**, or **306 with Processing v2**, across 23 resource domains, with 9 entry points so you can pick the right server for your MCP client's tool limit.
 
 > **API scope:** This server covers **two** Transkribus APIs:
 >
 > - the **legacy TrpServer REST API** (`https://transkribus.eu/TrpServer/rest`), session-based — 300 tools;
-> - the **Metagrapho Processing API** (`https://transkribus.eu/processing/v1`), OIDC bearer auth via `account.readcoop.eu` — the 4 `transkribus_processing_*` tools.
+> - the **Processing API**, OIDC bearer auth via `account.readcoop.eu` — 4 `transkribus_processing_*` tools with the default Metagrapho v1 backend (`https://transkribus.eu/processing/v1`), or 6 with the optional Developer Platform v2 beta (`https://api-staging.transkribus.org/v2`).
 >
-> Mind the version. Some Transkribus material still shows `/processing/v2` and a `config.modelId` field. That path returns 404; the live service is `/processing/v1` and takes `config.textRecognition.htrId`.
+> v2 requires explicit selection. Its [published OpenAPI](https://api-staging.transkribus.org/v2/openapi.json) names a staging server; production v2 availability has not been confirmed. Both backends take `config.textRecognition.htrId`.
 
 ## Installation
 
@@ -205,11 +205,47 @@ export TRANSKRIBUS_ACCESS_TOKEN=your-bearer-token       # skip the token exchang
 export TRANSKRIBUS_PROCESSING_CLIENT_ID=custom-client   # non-default OIDC client
 ```
 
+### Optional Processing v2 beta
+
+Set `TRANSKRIBUS_PROCESSING_BACKEND=v2` in the MCP server's environment before
+starting it. The default is `v1`; invalid values fail configuration. v2 uses
+the documented staging host `https://api-staging.transkribus.org/v2`, with the
+same OIDC credentials and PAGE/ALTO XML operations as v1. This selection affects
+the Processing tools in both the full server and `transkribus-mcp-processing`.
+
+| Backend | Job identifiers | Terminal statuses | Result retention | Tools |
+|---|---|---|---|---|
+| `v1` (default) | Positive integers, including numeric strings | `FINISHED`, `FAILED` | Two days | Submit, status, PAGE XML, ALTO XML |
+| `v2` (beta, staging) | Positive integers, numeric strings, UUIDs | `FINISHED`, `FAILED`, `CANCELLED` | 24 hours after completion | The same four tools, plus longpoll and ZIP |
+
+v2 submission and status results preserve the API fields and add `terminal`,
+`pollingAvailable`, and `linksByRel`. Links are indexed by their stable `rel`
+values, such as `self`, `status`, `longpoll`, `result`, and `page-result`;
+display titles do not affect behavior. An absent `longpoll` relation stops
+polling availability, and terminal states always stop it. Link URLs are returned
+as data; the server requests only the selected backend's documented paths.
+
+- `transkribus_processing_longpoll`: pass `processId` and optionally `interval`
+  (an int32 number of milliseconds). The call returns the observed job
+  with `timedOut: false`; inspect `terminal` because HTTP 200 may contain a
+  nonterminal status change. HTTP 408 or the 45-second local deadline returns
+  `{ processId, timedOut: true, terminal: null }`, so callers may retry without
+  treating a timeout as a completed job.
+- `transkribus_processing_get_result_zip`: pass `processId` to download a finished
+  job's archive. The result includes `filename`, `mimeType: "application/zip"`,
+  `encoding: "base64"`, `byteLength`, and `data`; decode `data` as base64 and
+  save it under `filename`. Downloads are limited to 20 MiB, checked for ZIP
+  MIME type and signature, and do not follow redirects. HTTP 404 means no result is available.
+
+These two tools are advertised only with v2 selected. The [job guide](https://docs.transkribus.org/processing/how-jobs-work)
+describes lifecycle, links, and retention; the [compatibility guide](https://docs.transkribus.org/compatibility)
+documents the Developer Platform's existing `/v2/processes` contract.
+
 ## Entry Points
 
 | Command | Domains | Tools |
 |---|---|---|
-| `transkribus-mcp-server` | All 23 domains | 304 |
+| `transkribus-mcp-server` | All 23 domains | 304 (306 with v2) |
 | `transkribus-mcp-collections` | Auth, Collections (core/docs/pages/users/crowd/editdecl/credits/stats/labels/activity/tags) | 131 |
 | `transkribus-mcp-admin` | Auth, Admin, Credits, Uploads, Labels, Files, System, Root | 62 |
 | `transkribus-mcp-transcription` | Auth, Recognition, Layout Analysis, PyLaia, P2PaLA, DU | 47 |
@@ -217,7 +253,7 @@ export TRANSKRIBUS_PROCESSING_CLIENT_ID=custom-client   # non-default OIDC clien
 | `transkribus-mcp-models` | Auth, Models | 26 |
 | `transkribus-mcp-jobs` | Auth, Jobs, Actions | 19 |
 | `transkribus-mcp-search` | Auth, Search, KWS | 16 |
-| `transkribus-mcp-processing` | Processing (Metagrapho) — no legacy auth tools | 4 |
+| `transkribus-mcp-processing` | Processing — no legacy auth tools | 4 (6 with v2) |
 
 Use split servers to reduce context size — pick only the splits you need.
 
