@@ -32,16 +32,17 @@ async function connect(configure: (server: McpServer) => void): Promise<Client> 
 }
 
 describe('reference resource — module content', () => {
-  it('REFERENCE_MD is non-empty markdown carrying the legacy-only scope note', () => {
+  it('REFERENCE_MD documents both APIs and optional v2 selection', () => {
     expect(typeof REFERENCE_MD).toBe('string');
     expect(REFERENCE_MD.length).toBeGreaterThan(0);
     expect(REFERENCE_MD).toContain('# Transkribus MCP');
-    // Known reference token + the two-API scope note. The Processing API is no
-    // longer out of scope (issue #22); the reference now has to name both APIs
-    // and the CORRECT Processing version, since /processing/v2 does not exist.
     expect(REFERENCE_MD).toContain('TrpServer');
     expect(REFERENCE_MD).toContain('Metagrapho Processing API');
     expect(REFERENCE_MD).toContain('/processing/v1');
+    expect(REFERENCE_MD).toContain('TRANSKRIBUS_PROCESSING_BACKEND=v2');
+    expect(REFERENCE_MD).toContain('https://api-staging.transkribus.org/v2');
+    expect(REFERENCE_MD).toContain('24 hours after completion');
+    expect(REFERENCE_MD).toContain('304 tools by default, 306 with v2');
     expect(REFERENCE_MD).not.toContain('out of scope');
   });
 

@@ -46,14 +46,18 @@ const PINS = {
   // (GHSA-4mjr-xmp4-gh2g) extended the vulnerable range through 6.15.3.
   qs: pin('^6.16.0'),
   // JSX cross-request disclosure, cx() XSS, CORS/Language ReDoS, proxy headers.
-  hono: pin('^4.12.34'),
+  // Static-generation traversal (GHSA-gqvv-2mrq-wpjv), nested form DoS
+  // (GHSA-g6gw-c38x-mqfc), fragment parsing (GHSA-crvj-82cr-hjcx), and
+  // boundary-component XSS (GHSA-hxh3-vqpv-xpqv), and serveStatic double decoding
+  // middleware bypass (GHSA-5r4p-p66f-jhc7).
+  hono: pin('^4.13.11'),
   // CRLF injection via unescaped multipart field/file names (GHSA-hmw2-7cc7-3qxx).
   'form-data': pin('^4.0.6'),
   // Host confusion via backslash authority delimiter / failed IDN canonicalization.
   // Four later advisories (GHSA-5jgf-p345-68v8, GHSA-f65p-4m7j-42xc,
-  // GHSA-fph4-wmhf-6fwf, GHSA-jqff-g426-hqxp) extended the vulnerable range
-  // through 3.1.5. The floor stays inside ajv's declared ^3.0.1.
-  'fast-uri': pin('^3.1.7'),
+  // GHSA-fph4-wmhf-6fwf, GHSA-jqff-g426-hqxp), plus percent-encoded host
+  // case normalization (GHSA-hrr3-gc8f-f4qj). Stays inside ajv's declared ^3.0.1.
+  'fast-uri': pin('^3.1.8'),
   // ReDoS. Dev-only reach (eslint -> minimatch), so the --omit=dev CI gate never
   // sees it; pinned here anyway because PINS asserts a PATCHED floor.
   'brace-expansion': pin('^5.0.9'),
@@ -61,7 +65,10 @@ const PINS = {
   // declared range.
   '@hono/node-server': pin('^1.19.15'),
   // Leading-zero octet and CIDR-suffix misparsing enabling SSRF / trust-boundary bypass.
-  'ip-address': pin('^10.3.1'),
+  // IPv6 link-local/NAT64 classification (GHSA-rpw4-54j3-4h4q, GHSA-2vr4-cq9g-pvrc),
+  // mixed-family subnet checks (GHSA-j6r3-76f7-8jcv), and unbounded diagnostics
+  // (GHSA-h3mg-xc3c-68pw).
+  'ip-address': pin('^10.7.1'),
   // First clean release in the 2.x line; no patch release exists below it.
   'body-parser': pin('^2.3.0'),
 } as const;

@@ -24,7 +24,7 @@ export function registerRecognitionTools(server: McpServer): void {
     'transkribus_recog_run_atr',
     {
       title: 'Run ATR',
-      description: 'Run Automatic Text Recognition on a document or specific pages.',
+      description: 'Run Automatic Text Recognition on one page or a whole document. Omitting pageNr recognizes every page and uses credits for each page.',
       inputSchema: z.object({
         collId: CollIdSchema,
         docId: DocIdSchema,
@@ -35,7 +35,12 @@ export function registerRecognitionTools(server: McpServer): void {
     },
     handleToolRequest(async (params) => {
       const { collId, docId, pageNr, modelId } = params;
-      return transkribusRequest('POST', '/recognition/atr', { collId, docId, pageNr, modelId });
+      return transkribusRequest('POST', '/recognition/atr', {
+        colId: collId,
+        docId,
+        pageStr: pageNr === undefined ? undefined : String(pageNr),
+        modelId,
+      });
     })
   );
 
@@ -244,13 +249,18 @@ export function registerRecognitionTools(server: McpServer): void {
         language: z.string().optional().describe('Language for OCR'),
         doBlockSegOnly: z.boolean().optional().describe('Only do block segmentation (default false)'),
         ocrType: z.string().optional().describe('OCR type (default "Legacy")'),
-        id: z.number().int().optional().describe('Model ID'),
+        id: DocIdSchema.optional().describe('Deprecated document-ID alias; if supplied, must match docId. OCR does not accept a model ID.'),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     handleToolRequest(async (params) => {
       const { collId, docId, pages, typeFace, language, doBlockSegOnly, ocrType, id } = params;
-      return transkribusRequest('POST', '/recognition/ocr', { collId, docId, pages, typeFace, language, doBlockSegOnly, type: ocrType, id });
+      if (id !== undefined && id !== docId) {
+        throw new Error('id must match docId; OCR uses id for the document, not a model');
+      }
+      return transkribusRequest('POST', '/recognition/ocr', undefined, {
+        collId, id: docId, pages, typeFace, language, doBlockSegOnly, type: ocrType,
+      });
     })
   );
 
@@ -401,7 +411,7 @@ export function registerRecognitionTools(server: McpServer): void {
     },
     handleToolRequest(async (params) => {
       const { collId, id, targetCollId } = params;
-      return transkribusRequest('POST', `/recognition/${collId}/${id}/add`, { targetCollId });
+      return transkribusRequest('POST', `/recognition/${collId}/${id}/add`, undefined, { collId: targetCollId });
     })
   );
 

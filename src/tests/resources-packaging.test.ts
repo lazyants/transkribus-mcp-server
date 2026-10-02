@@ -114,3 +114,40 @@ describe('reference resource — every shipped binary exposes it', () => {
     30_000,
   );
 });
+
+describe('Processing discovery — compiled full and split binaries', () => {
+  it.each([
+    ['v1', 'dist/index.js', 304],
+    ['v1', 'dist/entry-processing.js', 4],
+    ['v2', 'dist/index.js', 306],
+    ['v2', 'dist/entry-processing.js', 6],
+  ] as const)('%s %s advertises %s tools and matching backend guidance', async (backend, relPath, count) => {
+    const env = Object.fromEntries(Object.entries(process.env).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string'
+    ));
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [resolve(repoRoot, relPath)],
+      env: { ...env, TRANSKRIBUS_PROCESSING_BACKEND: backend },
+      stderr: 'ignore',
+    });
+    const client = new Client({ name: 'processing-pack-test', version: '0.0.0' });
+    try {
+      await withTimeout(client.connect(transport), 8_000, `connect ${backend} ${relPath}`);
+      const { tools } = await withTimeout(client.listTools(), 8_000, `list ${backend} ${relPath}`);
+      expect(tools).toHaveLength(count);
+      const names = tools.map((tool) => tool.name);
+      for (const name of ['transkribus_processing_longpoll', 'transkribus_processing_get_result_zip']) {
+        expect(names.includes(name)).toBe(backend === 'v2');
+      }
+      const status = tools.find((tool) => tool.name === 'transkribus_processing_get_status')!;
+      expect(status.description).toContain(backend === 'v2' ? '24 hours' : 'two days');
+      expect(status.inputSchema.required).toContain('processId');
+      const { contents } = await client.readResource({ uri: REFERENCE_URI });
+      expect((contents[0] as { text: string }).text).toContain('TRANSKRIBUS_PROCESSING_BACKEND=v2');
+    } finally {
+      await client.close();
+      await transport.close();
+    }
+  }, 30_000);
+});
