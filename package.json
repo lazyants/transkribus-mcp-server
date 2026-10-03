@@ -1,6 +1,6 @@
 {
   "name": "@lazyants/transkribus-mcp-server",
-  "version": "4.0.0",
+  "version": "4.1.0",
   "description": "MCP server for Transkribus REST and Processing APIs — collections, documents, recognition, models, and more. 304 tools by default, 306 with optional Processing v2 beta, across 23 resource domains.",
   "type": "module",
   "main": "dist/index.js",

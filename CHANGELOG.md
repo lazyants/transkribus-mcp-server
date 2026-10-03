@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0] — 2026-10-03
+
 ### Added
 
 - Optional Developer Platform v2 beta backend selected with
@@ -38,6 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   submitting recognition. Fixes #76.
 - Adding a recognition model to another collection sends the destination as the
   `collId` query parameter with no body. Fixes #77.
+- Published packages exclude compiled test files. MCP Registry metadata now
+  describes account credentials, tokens, and keyring configuration. Fixes #80.
 
 ## [4.0.0] — 2026-09-07
 
@@ -499,6 +503,7 @@ identical to 3.0.0.
 - Initial release under MIT (`io.github.lazyants/transkribus` MCP Registry
   descriptor only; npm package version was `1.0.0`).
 
+[4.1.0]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v4.1.0
 [4.0.0]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v4.0.0
 [3.1.0]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v3.1.0
 [3.0.1]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v3.0.1
