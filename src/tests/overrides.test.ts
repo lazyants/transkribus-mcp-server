@@ -43,8 +43,9 @@ function pin(range: string): { range: string; min: number[] } {
 const PINS = {
   // qs.stringify DoS (GHSA-q8mj-m7cp-5q26); array-limit bypass via bracket-key
   // comma parsing (GHSA-x5fp-wj9c-mxmx) and DoS via attacker-controlled isBuffer
-  // (GHSA-4mjr-xmp4-gh2g) extended the vulnerable range through 6.15.3.
-  qs: pin('^6.16.0'),
+  // (GHSA-4mjr-xmp4-gh2g) extended the vulnerable range through 6.15.3, and
+  // stringify comma-format TypeError DoS (GHSA-6pq8-jhm2-2vcw) through 6.16.0.
+  qs: pin('^6.16.1'),
   // JSX cross-request disclosure, cx() XSS, CORS/Language ReDoS, proxy headers.
   // Static-generation traversal (GHSA-gqvv-2mrq-wpjv), nested form DoS
   // (GHSA-g6gw-c38x-mqfc), fragment parsing (GHSA-crvj-82cr-hjcx), and
@@ -56,21 +57,25 @@ const PINS = {
   // Host confusion via backslash authority delimiter / failed IDN canonicalization.
   // Four later advisories (GHSA-5jgf-p345-68v8, GHSA-f65p-4m7j-42xc,
   // GHSA-fph4-wmhf-6fwf, GHSA-jqff-g426-hqxp), plus percent-encoded host
-  // case normalization (GHSA-hrr3-gc8f-f4qj). Stays inside ajv's declared ^3.0.1.
-  'fast-uri': pin('^3.1.8'),
+  // case normalization (GHSA-hrr3-gc8f-f4qj), and scheme spoofing, path
+  // equivalence, WHATWG host confusion and scheme injection (GHSA-w74x-v6f9-j3xg,
+  // GHSA-xhq7-xmqj-769h, GHSA-wjr9-j795-jxcr, GHSA-333x-w4r6-6crp). Stays inside
+  // ajv's declared ^3.0.1.
+  'fast-uri': pin('^3.1.9'),
   // ReDoS. Dev-only reach (eslint -> minimatch), so the --omit=dev CI gate never
   // sees it; pinned here anyway because PINS asserts a PATCHED floor.
   'brace-expansion': pin('^5.0.9'),
-  // A patch bump inside the 1.x line clears it — no major bump against the SDK's
-  // declared range.
-  '@hono/node-server': pin('^1.19.15'),
+  // serveStatic double decoding (GHSA-rmxm-3fg6-px4f) has no fixed 1.x release, so
+  // this moves to the 2.x line — still inside the SDK's declared ^1.19.9 || ^2.0.5.
+  '@hono/node-server': pin('^2.1.3'),
   // Leading-zero octet and CIDR-suffix misparsing enabling SSRF / trust-boundary bypass.
   // IPv6 link-local/NAT64 classification (GHSA-rpw4-54j3-4h4q, GHSA-2vr4-cq9g-pvrc),
   // mixed-family subnet checks (GHSA-j6r3-76f7-8jcv), and unbounded diagnostics
-  // (GHSA-h3mg-xc3c-68pw).
-  'ip-address': pin('^10.7.1'),
-  // First clean release in the 2.x line; no patch release exists below it.
-  'body-parser': pin('^2.3.0'),
+  // (GHSA-h3mg-xc3c-68pw), and quadratic zone-identifier matching (GHSA-rxp7-6hxx-x8q5).
+  'ip-address': pin('^10.7.4'),
+  // Trailing bytes after a compressed body DoS (GHSA-27r3-jxmh-p828); 2.4.0 is the
+  // first clean 2.x release.
+  'body-parser': pin('^2.4.0'),
 } as const;
 
 const PIN_NAMES = Object.keys(PINS) as Array<keyof typeof PINS>;
