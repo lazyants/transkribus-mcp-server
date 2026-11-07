@@ -10,6 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.1] — 2026-11-07
+
+### Security
+
+- Dependency updates clear every production `npm audit` finding published since
+  4.1.0 (1 critical, 4 high, 4 moderate). `@modelcontextprotocol/sdk` 1.32.2 fixes
+  OAuth credential, bearer-token and request-size advisories; `zod` 4.6.7 fixes
+  memory exhaustion on oversized collections; `axios` 1.21.0 with
+  `follow-redirects` 1.16.2 stops credential headers following cross-origin
+  redirects. Transitive `proxy-addr`, `body-parser`, `qs`, `fast-uri`,
+  `ip-address` and `@hono/node-server` are on patched releases. No tool or
+  configuration changes.
+
 ## [4.1.0] — 2026-10-03
 
 ### Added
@@ -503,6 +516,7 @@ identical to 3.0.0.
 - Initial release under MIT (`io.github.lazyants/transkribus` MCP Registry
   descriptor only; npm package version was `1.0.0`).
 
+[4.1.1]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v4.1.1
 [4.1.0]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v4.1.0
 [4.0.0]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v4.0.0
 [3.1.0]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v3.1.0

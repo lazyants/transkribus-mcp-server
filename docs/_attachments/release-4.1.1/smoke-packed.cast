@@ -1,0 +1,12 @@
+{"version":3,"term":{"cols":80,"rows":24},"timestamp":1794048987,"command":"bash docs/_attachments/release-4.1.1/smoke-packed.sh","env":{"SHELL":"/bin/zsh"}}
+[0.101, "o", "== build 4.1.1\r\n"]
+[2.704, "o", "== pack\r\n"]
+[0.345, "o", "lazyants-transkribus-mcp-server-4.1.1.tgz\r\n== install tarball into a clean project\r\n"]
+[1.750, "o", "installed: 4.1.1\r\n"]
+[0.162, "o", "sdk: 1.32.2  zod: 4.6.7\r\n"]
+[0.000, "o", "== tools/list over stdio\r\n"]
+[0.656, "o", "MCP server running on stdio (v4.1.1)\r\n"]
+[0.058, "o", "server: transkribus-mcp-server 4.1.1\r\n"]
+[0.000, "o", "tools: 304\r\ntools with required[]: 240, required params: 427\r\n"]
+[0.000, "o", "RESULT: PASS\r\n"]
+[0.417, "x", "0"]
