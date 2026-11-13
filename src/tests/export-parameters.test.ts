@@ -69,7 +69,7 @@ const tools: RegisteredTools = {
 async function call(name: string, args: Record<string, unknown>): Promise<Captured> {
   const tool = tools[name];
   expect(tool, `tool ${name} is not registered`).toBeDefined();
-  const result = await tool.handler(tool.inputSchema.parse(args));
+  const result = await tool.handler(tool.inputSchema.parse(args) as Record<string, unknown>);
   expect(result.isError, `tool ${name} returned an error: ${JSON.stringify(result.content)}`).toBeFalsy();
   const req = rig.requests.at(-1);
   expect(req, 'no request reached the test server').toBeDefined();
