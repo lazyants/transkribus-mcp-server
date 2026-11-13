@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { transkribusRequest, transkribusUpload } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
 import { CollIdSchema, DocIdSchema, PaginationParams, UserIdSchema, paginationWithDefaults } from '../schemas/common.js';
+import { ExportDocsSchema, ExportOptionsShape, buildDocumentSelection, buildExportParameters } from '../schemas/export.js';
 import { appendFilePart, appendTextPart, exactlyOneOf } from '../uploads-io.js';
 
 export function registerCollectionCoreTools(server: McpServer): void {
@@ -485,17 +486,20 @@ export function registerCollectionCoreTools(server: McpServer): void {
     'transkribus_coll_export',
     {
       title: 'Export Collection',
-      description: 'Export documents from a collection in the specified format.',
+      description:
+        'Start an export job for documents of a collection. Choose formats in commonPars and set format options in altoPars, pdfPars, teiPars or docxPars.',
       inputSchema: z.object({
         collId: CollIdSchema,
-        pages: z.string().optional().describe('Page range to export (e.g. "1-10")'),
-        format: z.string().optional().describe('Export format (e.g. "pdf", "docx", "tei")'),
+        docs: ExportDocsSchema.optional(),
+        ...ExportOptionsShape,
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     handleToolRequest(async (params) => {
-      const { collId, ...body } = params;
-      return transkribusRequest('POST', `/collections/${collId}/export`, body);
+      const { collId, pages, docs, ...options } = params;
+      const body = buildExportParameters(options);
+      if (docs) body.docs = buildDocumentSelection(docs);
+      return transkribusRequest('POST', `/collections/${collId}/export`, body, { pages });
     })
   );
 
