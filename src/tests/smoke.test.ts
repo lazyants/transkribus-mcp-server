@@ -60,13 +60,13 @@ function toolCount(server: McpServer): number {
 describe('Transkribus MCP Server — smoke tests', () => {
   beforeEach(() => vi.stubEnv('TRANSKRIBUS_PROCESSING_BACKEND', 'v1'));
   afterEach(() => vi.unstubAllEnvs());
-  it('registers 304 tools for the full server', () => {
+  it('registers 305 tools for the full server', () => {
     const server = freshServer();
     registerAll(server, fullEntry);
-    // 5 auth + 126 collections + 42 recognition/training + 21 models
+    // 5 auth + 127 collections + 42 recognition/training + 21 models
     // + 11 search/KWS + 14 jobs/actions + 24 users/crowd/eLearning + 57 admin/system
     // + 4 processing (Metagrapho)
-    expect(toolCount(server)).toBe(304);
+    expect(toolCount(server)).toBe(305);
   });
 
   it('registers 5 auth tools', () => {
@@ -75,7 +75,7 @@ describe('Transkribus MCP Server — smoke tests', () => {
     expect(toolCount(server)).toBe(5);
   });
 
-  it('registers 126 collection tools', () => {
+  it('registers 127 collection tools', () => {
     const server = freshServer();
     registerCollectionCoreTools(server);
     registerCollectionDocumentTools(server);
@@ -88,7 +88,7 @@ describe('Transkribus MCP Server — smoke tests', () => {
     registerCollectionLabelTools(server);
     registerCollectionActivityTools(server);
     registerCollectionTagTools(server);
-    expect(toolCount(server)).toBe(126);
+    expect(toolCount(server)).toBe(127);
   });
 
   it('registers 33 recognition tools', () => {
@@ -212,10 +212,10 @@ describe('Transkribus MCP Server — smoke tests', () => {
   });
 
   // Entry point tests — these run the exact composition each split binary ships.
-  it('registers 131 tools for collections entry point', () => {
+  it('registers 132 tools for collections entry point', () => {
     const server = freshServer();
     registerAll(server, collectionsEntry);
-    expect(toolCount(server)).toBe(131); // 5 auth + 126 collections
+    expect(toolCount(server)).toBe(132); // 5 auth + 127 collections
   });
 
   it('registers 47 tools for transcription entry point', () => {
@@ -268,11 +268,11 @@ describe('Transkribus MCP Server — smoke tests', () => {
     expect(toolCount(server)).toBe(4);
   });
 
-  it('registers 306 full-server and 6 processing-entry tools with v2 selected', () => {
+  it('registers 307 full-server and 6 processing-entry tools with v2 selected', () => {
     vi.stubEnv('TRANSKRIBUS_PROCESSING_BACKEND', 'v2');
     const fullServer = freshServer();
     registerAll(fullServer, fullEntry);
-    expect(toolCount(fullServer)).toBe(306);
+    expect(toolCount(fullServer)).toBe(307);
     const processingServer = freshServer();
     registerAll(processingServer, processingEntry);
     expect(toolCount(processingServer)).toBe(6);

@@ -119,9 +119,9 @@ describe('reference resource — every shipped binary exposes it', () => {
 
 describe('Processing discovery — compiled full and split binaries', () => {
   it.each([
-    ['v1', 'dist/index.js', 304],
+    ['v1', 'dist/index.js', 305],
     ['v1', 'dist/entry-processing.js', 4],
-    ['v2', 'dist/index.js', 306],
+    ['v2', 'dist/index.js', 307],
     ['v2', 'dist/entry-processing.js', 6],
   ] as const)('%s %s advertises %s tools and matching backend guidance', async (backend, relPath, count) => {
     const env = Object.fromEntries(Object.entries(process.env).filter(

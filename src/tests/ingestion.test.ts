@@ -64,6 +64,7 @@ vi.mock('../constants.js', async (importOriginal) => {
 
 const { registerUploadTools, buildUploadDescriptor } = await import('../tools/uploads.js');
 const { registerCollectionCoreTools } = await import('../tools/collections-core.js');
+const { collectionsEntry, fullEntry, registerAll } = await import('../entries.js');
 
 type ToolHandler = (args: Record<string, unknown>) => Promise<{ isError?: boolean; content: unknown }>;
 type RegisteredTools = Record<string, { inputSchema?: z.ZodTypeAny; handler: ToolHandler }>;
@@ -98,6 +99,38 @@ function requiredOf(tools: RegisteredTools, name: string): string[] {
   return schema.required ?? [];
 }
 
+type Part = { name: string; filename?: string; contentType?: string; body: Buffer };
+
+/** Split a captured multipart body into its parts, using the boundary from the
+ *  request's own Content-Type, so a part's bytes can be compared exactly rather
+ *  than found by a substring search over the whole body. */
+function multipartParts(req: Captured): Part[] {
+  const match = /boundary=(?:"([^"]+)"|([^;\s]+))/.exec(req.contentType ?? '');
+  expect(match, 'the multipart Content-Type carries no boundary').not.toBeNull();
+  const delimiter = Buffer.from(`--${match![1] ?? match![2]}`, 'latin1');
+  const parts: Part[] = [];
+  let start = req.body.indexOf(delimiter);
+  expect(start, 'the body contains no boundary delimiter').not.toBe(-1);
+  // The closing delimiter is the boundary followed by "--".
+  while (req.body.subarray(start + delimiter.length, start + delimiter.length + 2).toString('latin1') !== '--') {
+    const next = req.body.indexOf(delimiter, start + delimiter.length);
+    expect(next, 'a multipart part is not terminated').not.toBe(-1);
+    // A part runs from the CRLF after its delimiter to the CRLF before the next one.
+    const raw = req.body.subarray(start + delimiter.length + 2, next - 2);
+    const headerEnd = raw.indexOf('\r\n\r\n');
+    const headers = raw.subarray(0, headerEnd).toString('utf-8');
+    const disposition = /name="([^"]*)"(?:; filename="([^"]*)")?/.exec(headers);
+    parts.push({
+      name: disposition?.[1] ?? '',
+      filename: disposition?.[2],
+      contentType: /^content-type:\s*(.+)$/im.exec(headers)?.[1].trim(),
+      body: raw.subarray(headerEnd + 4),
+    });
+    start = next;
+  }
+  return parts;
+}
+
 let fixtureDir: string;
 let imagePath: string;
 let pageXmlPath: string;
@@ -105,6 +138,23 @@ let metsPath: string;
 let csvPath: string;
 let latin1CsvPath: string;
 let utf16MetsPath: string;
+let pdfPath: string;
+let notPdfPath: string;
+let emptyPdfPath: string;
+// Synthetic PDF: the %PDF- header, the customary binary-marker comment, and
+// every byte value 0x00–0xFF, so a text round-trip anywhere would show up.
+const PDF_BYTES = Buffer.concat([
+  Buffer.from('%PDF-1.7\n%', 'latin1'),
+  Buffer.from([0xe2, 0xe3, 0xcf, 0xd3]),
+  Buffer.from('\n1 0 obj\n<<>>\nendobj\n', 'latin1'),
+  Buffer.from(Array.from({ length: 256 }, (_, i) => i)),
+  Buffer.from('\n%%EOF\n', 'latin1'),
+]);
+// Stand-in for a file a confused caller must not ship: a key-like text with a
+// .pdf name, so the check has to look at the bytes, not the extension.
+const NOT_PDF_MARKER = 'SYNTHETIC-KEY-MATERIAL-NOT-A-REAL-KEY';
+const NOT_PDF_BYTES = Buffer.from(`-----BEGIN OPENSSH PRIVATE KEY-----\n${NOT_PDF_MARKER}\n`, 'latin1');
+const PDF_TITLE = 'Taufregister Sankt Görgen — 1650–1700';
 const IMAGE_BYTES = Buffer.from('89504e470d0a1a0a-FAKE-PNG-PAYLOAD', 'latin1');
 // Windows-1252: "Müller" and "Grün" — 0xFC is ü, which is two bytes in UTF-8.
 const LATIN1_CSV = Buffer.from('docId,title\n7,M\xfcller\n8,Gr\xfcn\n', 'latin1');
@@ -131,6 +181,13 @@ beforeAll(() => {
   utf16MetsPath = join(fixtureDir, 'mets-utf16.xml');
   writeFileSync(latin1CsvPath, LATIN1_CSV);
   writeFileSync(utf16MetsPath, UTF16_METS);
+
+  pdfPath = join(fixtureDir, 'scan.pdf');
+  notPdfPath = join(fixtureDir, 'renamed-key.pdf');
+  emptyPdfPath = join(fixtureDir, 'empty.pdf');
+  writeFileSync(pdfPath, PDF_BYTES);
+  writeFileSync(notPdfPath, NOT_PDF_BYTES);
+  writeFileSync(emptyPdfPath, Buffer.alloc(0));
 });
 
 afterAll(() => {
@@ -438,9 +495,79 @@ describe('transkribus_coll_create_doc_from_mets — multipart with a mets part',
   });
 });
 
-describe('tools that can never succeed are gone', () => {
+describe('transkribus_coll_create_doc_from_pdf — multipart with a file part', () => {
+  const PDF_TOOL = 'transkribus_coll_create_doc_from_pdf';
+
   it.each([
-    'transkribus_coll_create_doc_from_pdf',
+    ['collections split', collectionsEntry],
+    ['full server', fullEntry],
+  ])('the %s advertises it with collId and pdfFilePath required', (_label, entry) => {
+    const tools = toolsOf((server) => registerAll(server, entry));
+    const required = requiredOf(tools, PDF_TOOL);
+    expect(required).toEqual(expect.arrayContaining(['collId', 'pdfFilePath']));
+    expect(required).not.toContain('title');
+    expect(required).not.toContain('doDeleteImportSource');
+  });
+
+  it('POSTs the exact PDF bytes in a part named file, and nothing else when no options are given', async () => {
+    await call(collectionTools, PDF_TOOL, { collId: 5, pdfFilePath: pdfPath });
+
+    expect(rig.requests).toHaveLength(1);
+    const req = lastRequest();
+    expect(req.method).toBe('POST');
+    expect(req.url).toBe('/rest/collections/5/createDocFromPdf');
+    expect(req.contentType).toMatch(/^multipart\/form-data;\s*boundary=/);
+
+    const parts = multipartParts(req);
+    expect(parts.map((p) => p.name)).toEqual(['file']);
+    expect(parts[0].filename).toBe('scan.pdf');
+    expect(parts[0].contentType).toBe('application/pdf');
+    expect(parts[0].body.equals(PDF_BYTES), 'the file part holds the fixture bytes exactly').toBe(true);
+  });
+
+  it('sends title (UTF-8) and doDeleteImportSource as plain form fields', async () => {
+    await call(collectionTools, PDF_TOOL, {
+      collId: 5,
+      pdfFilePath: pdfPath,
+      title: PDF_TITLE,
+      doDeleteImportSource: true,
+    });
+
+    const parts = multipartParts(lastRequest());
+    expect(parts.map((p) => p.name)).toEqual(['file', 'title', 'doDeleteImportSource']);
+    const [file, title, doDelete] = parts;
+    expect(file.body.equals(PDF_BYTES)).toBe(true);
+    expect(title.filename, 'title is a form field, not a file').toBeUndefined();
+    expect(title.body.equals(Buffer.from(PDF_TITLE, 'utf-8'))).toBe(true);
+    expect(doDelete.filename).toBeUndefined();
+    expect(doDelete.body.toString('utf-8')).toBe('true');
+  });
+
+  it('sends doDeleteImportSource=false instead of dropping it', async () => {
+    await call(collectionTools, PDF_TOOL, { collId: 5, pdfFilePath: pdfPath, doDeleteImportSource: false });
+    const parts = multipartParts(lastRequest());
+    expect(parts.map((p) => p.name)).toEqual(['file', 'doDeleteImportSource']);
+    expect(parts[1].body.toString('utf-8')).toBe('false');
+  });
+
+  it.each([
+    ['a missing file', () => join(fixtureDir, 'missing.pdf'), 'missing.pdf'],
+    ['a file without the %PDF- header', () => notPdfPath, 'renamed-key.pdf'],
+    ['an empty file', () => emptyPdfPath, 'empty.pdf'],
+  ])('rejects %s before any request, without leaking content', async (_label, pathOf, fileName) => {
+    const result = await collectionTools[PDF_TOOL].handler({ collId: 5, pdfFilePath: pathOf() });
+
+    expect(result.isError).toBe(true);
+    expect(rig.requests, 'no request may reach the server').toHaveLength(0);
+    const text = JSON.stringify(result.content);
+    expect(text).toContain(fileName);
+    expect(text).not.toContain(NOT_PDF_MARKER);
+    expect(text).not.toContain('test-session-id');
+  });
+});
+
+describe('packed-document tools that can never succeed are gone', () => {
+  it.each([
     'transkribus_coll_upload_doc',
     'transkribus_coll_upload_doc_multipart',
   ])('%s is no longer registered', (name) => {

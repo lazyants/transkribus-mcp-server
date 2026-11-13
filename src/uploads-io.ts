@@ -4,7 +4,7 @@ import { basename } from 'node:path';
 /** Local-file I/O and multipart assembly shared by the ingestion tools.
  *
  *  Transkribus' ingestion endpoints take real bytes: `multipart/form-data`
- *  (parts `img` / `xml` / `mets`), `application/xml` (METS), or `text/csv`.
+ *  (parts `img` / `xml` / `mets` / `file`), `application/xml` (METS), or `text/csv`.
  *  These helpers turn caller-supplied local paths and inline strings into
  *  those bodies. Reading a caller-chosen path follows the precedent already
  *  set by `src/tools/pylaia.ts` (`readFileSync(trainListFile)`): the caller is
@@ -20,6 +20,21 @@ export function readLocalFile(filePath: string): Buffer {
     const reason = err instanceof Error ? err.message : String(err);
     throw new Error(`Cannot read local file "${filePath}": ${reason}`, { cause: err });
   }
+}
+
+const PDF_MAGIC = Buffer.from('%PDF-', 'latin1');
+
+/** Read a local file that must be a PDF, refusing anything whose first bytes
+ *  are not the `%PDF-` header. The PDF tool ships a caller-named local file to
+ *  a third-party service, so a wrong path (a key file, a config) has to stop
+ *  here, before any byte leaves the machine. The message names the path only,
+ *  never the file's content. */
+export function readLocalPdf(filePath: string): Buffer {
+  const bytes = readLocalFile(filePath);
+  if (!bytes.subarray(0, PDF_MAGIC.length).equals(PDF_MAGIC)) {
+    throw new Error(`Local file "${filePath}" is not a PDF: it does not start with "%PDF-".`);
+  }
+  return bytes;
 }
 
 /** Resolve a request payload supplied either inline or as a local file path.
@@ -53,22 +68,34 @@ export function exactlyOneOf(a: unknown, b: unknown): boolean {
 }
 
 /** Append a local file as a named multipart part. The part name is the wire
- *  contract (`img`, `xml`, `mets`) — Transkribus looks the part up by name, so
- *  these strings are not cosmetic. */
+ *  contract (`img`, `xml`, `mets`, `file`) — Transkribus looks the part up by
+ *  name, so these strings are not cosmetic. */
 export function appendFilePart(
   form: FormData,
   partName: string,
   filePath: string,
   fileName?: string,
 ): void {
-  const bytes = readLocalFile(filePath);
+  appendBytesPart(form, partName, readLocalFile(filePath), fileName ?? basename(filePath));
+}
+
+/** Append bytes already read from disk as a named file part. `contentType`
+ *  becomes the part's own `Content-Type`; without it axios sends
+ *  `application/octet-stream`. */
+export function appendBytesPart(
+  form: FormData,
+  partName: string,
+  bytes: Buffer,
+  fileName: string,
+  contentType?: string,
+): void {
   // `new Blob([buffer])` does not type-check against @types/node 20's BlobPart:
   // a Buffer is a Uint8Array<ArrayBufferLike>, while BlobPart wants a view over
   // a plain ArrayBuffer. readFileSync never returns SharedArrayBuffer-backed
   // memory, so re-wrapping the same bytes with that narrower type is sound and
   // copies nothing.
   const view = new Uint8Array(bytes.buffer as ArrayBuffer, bytes.byteOffset, bytes.byteLength);
-  form.append(partName, new Blob([view]), fileName ?? basename(filePath));
+  form.append(partName, new Blob([view], { type: contentType }), fileName);
 }
 
 /** Append an in-memory string as a named multipart part. */

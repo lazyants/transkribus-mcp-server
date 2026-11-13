@@ -42,7 +42,7 @@ describe('reference resource — module content', () => {
     expect(REFERENCE_MD).toContain('TRANSKRIBUS_PROCESSING_BACKEND=v2');
     expect(REFERENCE_MD).toContain('https://api-staging.transkribus.org/v2');
     expect(REFERENCE_MD).toContain('24 hours after completion');
-    expect(REFERENCE_MD).toContain('304 tools by default, 306 with v2');
+    expect(REFERENCE_MD).toContain('305 tools by default, 307 with v2');
     expect(REFERENCE_MD).not.toContain('out of scope');
   });
 

@@ -1,10 +1,11 @@
+import { basename } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { transkribusRequest, transkribusUpload } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
 import { CollIdSchema, DocIdSchema, PaginationParams, UserIdSchema, paginationWithDefaults } from '../schemas/common.js';
 import { ExportDocsSchema, ExportOptionsShape, buildDocumentSelection, buildExportParameters } from '../schemas/export.js';
-import { appendFilePart, appendTextPart, exactlyOneOf } from '../uploads-io.js';
+import { appendBytesPart, appendFilePart, appendTextPart, exactlyOneOf, readLocalPdf } from '../uploads-io.js';
 
 export function registerCollectionCoreTools(server: McpServer): void {
   // 1. GET /collections
@@ -410,6 +411,35 @@ export function registerCollectionCoreTools(server: McpServer): void {
     handleToolRequest(async (params) => {
       const { collId, url } = params;
       return transkribusRequest('POST', `/collections/${collId}/createDocFromMetsUrl`, undefined, { fileName: url });
+    })
+  );
+
+  // 22. POST /collections/{collId}/createDocFromPdf
+  // Multipart parts per the TrpServer 4.69.0 OpenAPI: `file` carries the PDF
+  // bytes; `title` and `doDeleteImportSource` are plain form fields.
+  server.registerTool(
+    'transkribus_coll_create_doc_from_pdf',
+    {
+      title: 'Create Document from PDF',
+      description: 'Create a document in a collection by uploading a local PDF file as multipart form data.',
+      inputSchema: z.object({
+        collId: CollIdSchema,
+        pdfFilePath: z.string().describe('Local path to the PDF file'),
+        title: z.string().optional().describe('Document title'),
+        doDeleteImportSource: z.boolean().optional().describe('Delete import source after ingest'),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    handleToolRequest(async (params) => {
+      const { collId, pdfFilePath, title, doDeleteImportSource } = params;
+      // Read and check the file before transkribusUpload, which may open a
+      // session: a missing or non-PDF file must fail before any network I/O.
+      const pdf = readLocalPdf(pdfFilePath);
+      const form = new FormData();
+      appendBytesPart(form, 'file', pdf, basename(pdfFilePath), 'application/pdf');
+      if (title !== undefined) form.append('title', title);
+      if (doDeleteImportSource !== undefined) form.append('doDeleteImportSource', String(doDeleteImportSource));
+      return transkribusUpload(`/collections/${collId}/createDocFromPdf`, form);
     })
   );
 
