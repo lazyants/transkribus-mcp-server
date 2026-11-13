@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { transkribusRequest } from '../services/transkribus.js';
 import { handleToolRequest } from '../helpers.js';
 import { CollIdSchema, DocIdSchema, PageNrSchema, PaginationParams, intCoerce, paginationIndex, paginationNValues, paginationWithDefaults } from '../schemas/common.js';
+import { ExportOptionsShape, buildExportParameters } from '../schemas/export.js';
 
 /** How many pages one transkribus_doc_get_plaintext call will fetch. A clamp, not
  *  an error: the result reports nextStartPage so a long document is read in
@@ -283,56 +284,24 @@ export function registerCollectionDocumentTools(server: McpServer): void {
     })
   );
 
-  // 8. POST /collections/{collId}/{id}/export
+  // 8. POST /collections/{collId}/{id}/export — `pages` in the query, an
+  //    ExportParameters body (see src/schemas/export.ts).
   server.registerTool(
     'transkribus_doc_export',
     {
       title: 'Export Document',
-      description: 'Export a document in the specified format.',
+      description:
+        'Start an export job for a document. Choose formats in commonPars and set format options in altoPars, pdfPars, teiPars or docxPars.',
       inputSchema: z.object({
         collId: CollIdSchema,
         id: DocIdSchema,
-        pages: z.string().optional().describe('Page range to export (e.g. "1-5")'),
-        format: z.string().optional().describe('Export format'),
-        doWriteMets: z.boolean().optional().default(true).describe('Write METS file'),
-        doWriteImages: z.boolean().optional().default(true).describe('Write image files'),
-        doExportPageXml: z.boolean().optional().default(true).describe('Export PAGE XML'),
-        doExportAltoXml: z.boolean().optional().default(true).describe('Export ALTO XML'),
-        splitIntoWordsInAltoXml: z.boolean().optional().default(true).describe('Split into words in ALTO XML'),
-        doWritePdf: z.boolean().optional().default(false).describe('Write PDF'),
-        doWriteTei: z.boolean().optional().default(false).describe('Write TEI'),
-        doWriteDocx: z.boolean().optional().default(false).describe('Write DOCX'),
-        doWriteTagsXlsx: z.boolean().optional().default(false).describe('Write tags XLSX'),
-        doWriteTablesXlsx: z.boolean().optional().default(false).describe('Write tables XLSX'),
-        doPdfImagesOnly: z.boolean().optional().default(false).describe('PDF with images only'),
-        doPdfImagesPlusText: z.boolean().optional().default(false).describe('PDF with images plus text'),
-        doPdfWithTextPages: z.boolean().optional().default(false).describe('PDF with text pages'),
-        doPdfWithTags: z.boolean().optional().default(false).describe('PDF with tags'),
-        doTeiWithNoZones: z.boolean().optional().default(false).describe('TEI without zones'),
-        doTeiWithZones: z.boolean().optional().default(false).describe('TEI with zones'),
-        doSingleClassColorTei: z.boolean().optional().default(false).describe('Single class color TEI'),
-        doBlackening: z.boolean().optional().default(false).describe('Apply blackening'),
-        doCreateTitle: z.boolean().optional().default(false).describe('Create title page'),
-        doWordBased: z.boolean().optional().default(false).describe('Word-based export'),
-        doDocxExpandAbbrevs: z.boolean().optional().default(false).describe('Expand abbreviations in DOCX'),
-        doDocxSubstituteAbbrevs: z.boolean().optional().default(false).describe('Substitute abbreviations in DOCX'),
-        doTeiWithZonePerRegion: z.boolean().optional().default(false).describe('TEI with zone per region'),
-        doTeiWithZonePerLine: z.boolean().optional().default(false).describe('TEI with zone per line'),
-        doTeiWithZonePerWord: z.boolean().optional().default(false).describe('TEI with zone per word'),
-        doTeiWithLineTags: z.boolean().optional().default(false).describe('TEI with line tags'),
-        doTeiWithLineBreaks: z.boolean().optional().default(false).describe('TEI with line breaks'),
-        doDocxWithTags: z.boolean().optional().default(false).describe('DOCX with tags'),
-        doDocxPreserveLineBreaks: z.boolean().optional().default(false).describe('Preserve line breaks in DOCX'),
-        doDocxForcePageBreaks: z.boolean().optional().default(false).describe('Force page breaks in DOCX'),
-        doDocxMarkUnclear: z.boolean().optional().default(false).describe('Mark unclear text in DOCX'),
-        doDocxKeepAbbrevs: z.boolean().optional().default(false).describe('Keep abbreviations in DOCX'),
-        useVersionStatus: z.string().optional().default('Latest').describe('Version status to use'),
+        ...ExportOptionsShape,
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     handleToolRequest(async (params) => {
-      const { collId, id, ...query } = params;
-      return transkribusRequest('POST', `/collections/${collId}/${id}/export`, undefined, query);
+      const { collId, id, pages, ...options } = params;
+      return transkribusRequest('POST', `/collections/${collId}/${id}/export`, buildExportParameters(options), { pages });
     })
   );
 
