@@ -4,11 +4,11 @@
 
 MCP server for the [Transkribus REST API](https://transkribus.eu/). Manage collections, documents, HTR/OCR recognition, models, and more through the Model Context Protocol.
 
-**304 tools by default**, or **306 with Processing v2**, across 23 resource domains, with 9 entry points so you can pick the right server for your MCP client's tool limit.
+**305 tools by default**, or **307 with Processing v2**, across 23 resource domains, with 9 entry points so you can pick the right server for your MCP client's tool limit.
 
 > **API scope:** This server covers **two** Transkribus APIs:
 >
-> - the **legacy TrpServer REST API** (`https://transkribus.eu/TrpServer/rest`), session-based — 300 tools;
+> - the **legacy TrpServer REST API** (`https://transkribus.eu/TrpServer/rest`), session-based — 301 tools;
 > - the **Processing API**, OIDC bearer auth via `account.readcoop.eu` — 4 `transkribus_processing_*` tools with the default Metagrapho v1 backend (`https://transkribus.eu/processing/v1`), or 6 with the optional Developer Platform v2 beta (`https://api-staging.transkribus.org/v2`).
 >
 > v2 requires explicit selection. Its [published OpenAPI](https://api-staging.transkribus.org/v2/openapi.json) names a staging server; production v2 availability has not been confirmed. Both backends take `config.textRecognition.htrId`.
@@ -245,8 +245,8 @@ documents the Developer Platform's existing `/v2/processes` contract.
 
 | Command | Domains | Tools |
 |---|---|---|
-| `transkribus-mcp-server` | All 23 domains | 304 (306 with v2) |
-| `transkribus-mcp-collections` | Auth, Collections (core/docs/pages/users/crowd/editdecl/credits/stats/labels/activity/tags) | 131 |
+| `transkribus-mcp-server` | All 23 domains | 305 (307 with v2) |
+| `transkribus-mcp-collections` | Auth, Collections (core/docs/pages/users/crowd/editdecl/credits/stats/labels/activity/tags) | 132 |
 | `transkribus-mcp-admin` | Auth, Admin, Credits, Uploads, Labels, Files, System, Root | 62 |
 | `transkribus-mcp-transcription` | Auth, Recognition, Layout Analysis, PyLaia, P2PaLA, DU | 47 |
 | `transkribus-mcp-users` | Auth, Users, Crowdsourcing, eLearning | 29 |
@@ -270,8 +270,19 @@ To ingest a document, use this three-step flow:
    collection.
 
 These upload tools ship in the full `transkribus-mcp-server` and in the `transkribus-mcp-admin`
-split — not in `transkribus-mcp-collections`. PDF ingestion is not supported; convert the PDF to
-page images first and use the flow above.
+split — not in `transkribus-mcp-collections`.
+
+### Uploading a PDF
+
+`transkribus_coll_create_doc_from_pdf` creates a document from a local PDF in one call. Give it
+`collId` and `pdfFilePath` (a path to a local PDF file), and optionally a `title` and
+`doDeleteImportSource`. The file must start with the `%PDF-` header; anything else is refused
+before a request is sent. The tool returns the API's response unchanged. It ships in the full
+`transkribus-mcp-server` and in the `transkribus-mcp-collections` split — not in
+`transkribus-mcp-admin`.
+
+You can still convert the PDF to page images yourself and use the three-step flow above, for
+example to control the image format or resolution.
 
 ## Claude Code
 
