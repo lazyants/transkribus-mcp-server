@@ -1,0 +1,20 @@
+== build 4.2.0
+== pack
+lazyants-transkribus-mcp-server-4.2.0.tgz
+== install tarball into a clean project
+installed: 4.2.0
+sdk: 1.32.2  zod: 4.6.7
+== tools/list over stdio
+MCP server running on stdio (v4.2.0)
+server: transkribus-mcp-server 4.2.0
+tools: 305
+tools with required[]: 241, required params: 429
+RESULT: PASS
+== changed tools over stdio, against a local capturing proxy
+MCP server running on stdio (v4.2.0)
+PASS doc_export: POST https://transkribus.eu/TrpServer/rest/collections/1/2/export?pages=1-2 application/json body={"commonPars":{"doWriteMets":true,"doWriteImages":true,"doExportPageXml":true,"doExportAltoXml":true,"splitIntoWordsInAltoXml":true,"useVersionStatus":"Latest","doWritePdf":true},"pdfPars":{"doPdfImagesPlusText":true}}
+PASS model_get_by_type: GET https://transkribus.eu/TrpServer/rest/models/text?releaseLevel=public&isoLanguages=de&isoLanguages=en&facetLimit=10&minFacetCount=2
+PASS coll_create_doc_from_pdf: POST https://transkribus.eu/TrpServer/rest/collections/1/createDocFromPdf multipart/form-data, parts: file, title
+[transkribus-mcp] Tool error: Local file "<tmp>/not-a-pdf.pdf" is not a PDF: it does not start with "%PDF-".
+PASS non-PDF refused: isError=true, requests=0, message mentions content: false
+RESULT: PASS

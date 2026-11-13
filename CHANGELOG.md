@@ -10,6 +10,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.2.0] — 2026-11-13
+
+All three changes follow the live TrpServer OpenAPI 4.69.0. 305 tools by default,
+307 with Processing v2.
+
+### Added
+
+- `transkribus_coll_create_doc_from_pdf` creates a document from a local PDF in one
+  call: `POST /collections/{collId}/createDocFromPdf`, multipart part `file` plus
+  optional `title` and `doDeleteImportSource`. A file that does not start with the
+  `%PDF-` header is refused before any request is sent. The tool is in the full
+  server and the collections split. The other two packed-document upload tools
+  removed in 4.0.0 stay removed (#96).
+- `transkribus_model_get_by_type` takes the dataset filters `datasetId`,
+  `datasetVersionId`, `minNrOfTrainGtPages` and `minNrOfValidationGtPages`, and
+  `dataSetReleaseLevel` (#95).
+
+### Fixed
+
+- `transkribus_doc_export` and `transkribus_coll_export` send their options as the
+  `ExportParameters` request body the service reads: formats in `commonPars`, format
+  options in `altoPars`, `pdfPars`, `teiPars` and `docxPars`, and the page range as
+  the `pages` query parameter. Before, the document export put every flag in the
+  query string and the collection export sent `{ pages, format }`, so no requested
+  format or option reached the service. The flat flags and `format` are removed;
+  the default export (METS, images, PAGE XML, ALTO, latest version) is unchanged.
+  The collection export also takes a document and page selection (#94).
+- `transkribus_model_get_by_type` accepts several values for `releaseLevel`,
+  `isoLanguages`, `scriptTypes`, `labels` and `centuries`, and enforces the facet
+  bounds (`facetLimit` 10–500, `minFacetCount` 1–10). A single value still works
+  as before. Array query values are now sent as repeated keys (`labels=a&labels=b`),
+  the format the service reads; no other tool sends arrays in the query (#95).
+- Model tool descriptions name the current model families (text, layout,
+  smartextract) instead of `htr, la, ocr` (#95).
+- `hono` 4.13.18 clears five moderate advisories in the production dependency
+  tree (#97).
+
 ## [4.1.1] — 2026-11-07
 
 ### Security
@@ -516,6 +553,7 @@ identical to 3.0.0.
 - Initial release under MIT (`io.github.lazyants/transkribus` MCP Registry
   descriptor only; npm package version was `1.0.0`).
 
+[4.2.0]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v4.2.0
 [4.1.1]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v4.1.1
 [4.1.0]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v4.1.0
 [4.0.0]: https://github.com/lazyants/transkribus-mcp-server/releases/tag/v4.0.0
