@@ -291,6 +291,10 @@ function baseClientConfig(): Record<string, unknown> {
   return {
     baseURL: TRANSKRIBUS_API_BASE,
     timeout: REQUEST_TIMEOUT,
+    // TrpServer's array query params are OpenAPI form/explode lists that JAX-RS
+    // reads from repeated keys (`labels=a&labels=b`). axios's default
+    // `labels[]=a&labels[]=b` names a different parameter, so the filter is lost.
+    paramsSerializer: { indexes: null },
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',

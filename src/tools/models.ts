@@ -14,6 +14,24 @@ import {
   pathSeg,
 } from '../schemas/common.js';
 
+// GET /models/{type} declares its list filters as OpenAPI query arrays, sent as
+// repeated keys (`isoLanguages=de&isoLanguages=en`). These fields took a single
+// value before, so a bare scalar is still accepted and wrapped into a
+// one-element array; tools/list advertises only the array form.
+const wrapScalar = (v: unknown) => (v === undefined || Array.isArray(v) ? v : [v]);
+
+const stringList = () => z.preprocess(wrapScalar, z.array(z.string()));
+
+const intList = () => z.preprocess(wrapScalar, z.array(intCoerce(z.number().int())));
+
+// releaseLevel used to be an integer and is now a string array, so an old
+// integer is sent as its string form — the wire value stays `releaseLevel=1`.
+const releaseLevelList = () =>
+  z.preprocess(
+    (v) => wrapScalar(typeof v === 'number' && Number.isSafeInteger(v) ? String(v) : v),
+    z.array(z.string()),
+  );
+
 export function registerModelTools(server: McpServer): void {
   // 1. POST /models/
   server.registerTool(
@@ -172,24 +190,31 @@ export function registerModelTools(server: McpServer): void {
       title: 'Get Models by Type',
       description: 'Get models filtered by type with optional query parameters.',
       inputSchema: z.object({
-        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model family: text, layout, smartextract or all'),
         collId: intCoerce(z.number().int()).optional().describe('Filter by collection ID'),
         userid: intCoerce(z.number().int()).optional().describe('Filter by user ID'),
         filter: z.string().optional().describe('Filter string'),
-        releaseLevel: intCoerce(z.number().int()).optional().describe('Filter by release level'),
+        releaseLevel: releaseLevelList().optional().describe('Filter by one or more release levels'),
+        dataSetReleaseLevel: stringList().optional().describe('Filter by one or more dataset release levels'),
         prov: z.string().optional().describe('Filter by provider'),
-        centuries: z.string().optional().describe('Filter by centuries'),
-        isoLanguages: z.string().optional().describe('Filter by ISO languages'),
-        scriptTypes: z.string().optional().describe('Filter by script types'),
+        centuries: intList().optional().describe('Filter by one or more centuries (e.g. [17, 18])'),
+        isoLanguages: stringList().optional().describe('Filter by one or more ISO language codes'),
+        scriptTypes: stringList().optional().describe('Filter by one or more script types'),
         creator: z.string().optional().describe('Filter by creator'),
         publisher: z.string().optional().describe('Filter by publisher'),
         docType: z.string().optional().describe('Filter by document type'),
         featured: z.boolean().optional().describe('Filter featured models'),
         application: z.string().optional().describe('Filter by application'),
         slug: z.string().optional().describe('Filter by slug'),
-        labels: z.string().optional().describe('Filter by labels'),
-        facetLimit: intCoerce(z.number().int()).prefault(10).describe('Facet limit'),
-        minFacetCount: intCoerce(z.number().int()).prefault(2).describe('Minimum facet count'),
+        labels: stringList().optional().describe('Filter by one or more labels'),
+        datasetId: intCoerce(z.number().int().positive()).optional().describe('Filter by dataset ID'),
+        datasetVersionId: intCoerce(z.number().int().positive()).optional().describe('Filter by dataset version ID'),
+        minNrOfTrainGtPages: intCoerce(z.number().int().min(0)).optional()
+          .describe('Minimum number of ground-truth training pages'),
+        minNrOfValidationGtPages: intCoerce(z.number().int().min(0)).optional()
+          .describe('Minimum number of ground-truth validation pages'),
+        facetLimit: intCoerce(z.number().int().min(10).max(500)).prefault(10).describe('Facet limit (10-500)'),
+        minFacetCount: intCoerce(z.number().int().min(1).max(10)).prefault(2).describe('Minimum facet count (1-10)'),
         ...PaginationParams,
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
@@ -207,7 +232,7 @@ export function registerModelTools(server: McpServer): void {
       title: 'Get Model Details',
       description: 'Get detailed information about a model by type and ID.',
       inputSchema: z.object({
-        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model family: text, layout or smartextract'),
         id: IdSchema,
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
@@ -225,7 +250,7 @@ export function registerModelTools(server: McpServer): void {
       title: 'Update Model by Type',
       description: 'Update a model by its type and ID.',
       inputSchema: z.object({
-        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model family: text, layout or smartextract'),
         id: IdSchema,
         body: z.record(z.string(), z.unknown()).describe('Model update data'),
       }),
@@ -244,7 +269,7 @@ export function registerModelTools(server: McpServer): void {
       title: 'Delete Model by Type',
       description: 'Delete a model by its type and ID.',
       inputSchema: z.object({
-        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model family: text, layout or smartextract'),
         id: IdSchema,
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
@@ -262,7 +287,7 @@ export function registerModelTools(server: McpServer): void {
       title: 'List Model Collections',
       description: 'List collections associated with a model by type and ID.',
       inputSchema: z.object({
-        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model family: text, layout or smartextract'),
         id: IdSchema,
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
@@ -280,7 +305,7 @@ export function registerModelTools(server: McpServer): void {
       title: 'Get Model Field Parameters',
       description: 'Get the field parameters for a model by type and ID.',
       inputSchema: z.object({
-        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model family: text, layout or smartextract'),
         id: IdSchema,
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
@@ -298,7 +323,7 @@ export function registerModelTools(server: McpServer): void {
       title: 'Get Model Training Data',
       description: 'Get the training data for a model by type and ID.',
       inputSchema: z.object({
-        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model family: text, layout or smartextract'),
         id: IdSchema,
         index: intCoerce(z.number().int()).optional().describe('Start index (0-based)'),
         nValues: intCoerce(z.number().int()).optional().describe('Number of values to return'),
@@ -318,7 +343,7 @@ export function registerModelTools(server: McpServer): void {
       title: 'Get Training Data Documents',
       description: 'Get the documents used as training data for a model.',
       inputSchema: z.object({
-        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model family: text, layout or smartextract'),
         id: IdSchema,
         index: paginationIndex(0),
         nValues: paginationNValues(-1),
@@ -338,7 +363,7 @@ export function registerModelTools(server: McpServer): void {
       title: 'Get Training Data Statistics',
       description: 'Get statistics about the training data for a model.',
       inputSchema: z.object({
-        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model family: text, layout or smartextract'),
         id: IdSchema,
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
@@ -356,7 +381,7 @@ export function registerModelTools(server: McpServer): void {
       title: 'Get Validation Data',
       description: 'Get the validation data for a model by type and ID.',
       inputSchema: z.object({
-        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model family: text, layout or smartextract'),
         id: IdSchema,
         index: paginationIndex(0),
         nValues: paginationNValues(-1),
@@ -376,7 +401,7 @@ export function registerModelTools(server: McpServer): void {
       title: 'Get Validation Data Documents',
       description: 'Get the documents used as validation data for a model.',
       inputSchema: z.object({
-        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model family: text, layout or smartextract'),
         id: IdSchema,
         index: paginationIndex(0),
         nValues: paginationNValues(-1),
@@ -396,7 +421,7 @@ export function registerModelTools(server: McpServer): void {
       title: 'Get Validation Data Statistics',
       description: 'Get statistics about the validation data for a model.',
       inputSchema: z.object({
-        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model family: text, layout or smartextract'),
         id: IdSchema,
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
@@ -414,7 +439,7 @@ export function registerModelTools(server: McpServer): void {
       title: 'Add Collection to Model',
       description: 'Add a collection to a model by type and model ID.',
       inputSchema: z.object({
-        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model family: text, layout or smartextract'),
         modelId: ModelIdSchema,
         collId: CollIdSchema.describe('Collection ID to add'),
       }),
@@ -433,7 +458,7 @@ export function registerModelTools(server: McpServer): void {
       title: 'Remove Collection from Model',
       description: 'Remove a collection from a model by type, model ID, and collection ID.',
       inputSchema: z.object({
-        type: PathSegmentSchema.describe('Model type (e.g. htr, la, ocr)'),
+        type: PathSegmentSchema.describe('Model family: text, layout or smartextract'),
         modelId: ModelIdSchema,
         collId: CollIdSchema,
       }),
